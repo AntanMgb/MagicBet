@@ -19,7 +19,7 @@ function createCommitAndUndelegateInstruction(payer: PublicKey, accounts: Public
     keys: [
       { pubkey: payer,            isSigner: true,  isWritable: true },
       { pubkey: MAGIC_CONTEXT_ID, isSigner: false, isWritable: true },
-      ...accounts.map(a => ({ pubkey: a, isSigner: false, isWritable: false })),
+      ...accounts.map(a => ({ pubkey: a, isSigner: false, isWritable: true })),
     ],
     programId: MAGIC_PROGRAM_ID,
     data,
@@ -125,18 +125,27 @@ export async function undelegateBet(wallet: AnchorWallet, betPda: PublicKey): Pr
   const ix = createCommitAndUndelegateInstruction(wallet.publicKey, [betPda]);
   const tx = new Transaction();
   tx.add(ix);
-  const { blockhash } = await erConn.getLatestBlockhash('confirmed');
+  const { blockhash, lastValidBlockHeight } = await erConn.getLatestBlockhash('confirmed');
   tx.recentBlockhash = blockhash;
   tx.feePayer = wallet.publicKey;
 
   const signed = await wallet.signTransaction(tx);
-  await erConn.sendRawTransaction(signed.serialize(), { skipPreflight: true });
+  const sig = await erConn.sendRawTransaction(signed.serialize(), { skipPreflight: true });
 
-  // Poll L1 until ownership returns to our program (max 30s)
-  for (let i = 0; i < 60; i++) {
-    await new Promise(r => setTimeout(r, 500));
-    const info = await l1Conn.getAccountInfo(betPda);
-    if (info && !info.owner.equals(DELEGATION_PROGRAM)) return;
+  // Confirm on ER first
+  try {
+    await erConn.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, 'confirmed');
+  } catch {
+    // ER may not support confirmTransaction — continue to poll L1
   }
-  throw new Error('Undelegation timed out. The bet is still in the TEE. Please wait a moment and try again.');
+
+  // Poll L1 until ownership returns to our program (max 45s)
+  for (let i = 0; i < 90; i++) {
+    await new Promise(r => setTimeout(r, 500));
+    const info = await l1Conn.getAccountInfo(betPda, 'confirmed');
+    if (info && !info.owner.equals(DELEGATION_PROGRAM)) return;
+    // If account no longer exists on L1 either — something went wrong, stop
+    if (i > 10 && info === null) throw new Error('Bet account not found on L1. It may have already been claimed.');
+  }
+  throw new Error('Undelegation timed out after 45s. The bet is still in the TEE. Please try again in a minute.');
 }

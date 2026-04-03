@@ -132,11 +132,7 @@ export default function HomePage() {
 
   const load = async () => {
     setLoading(true);
-    try {
-      const all = await fetchAllMarkets(connection);
-      const sorted = all.sort((a, b) => b.deadline - a.deadline).slice(0, 100);
-      setMarkets(sorted);
-    }
+    try { setMarkets(await fetchAllMarkets(connection)); }
     catch (e) { console.error(e); }
     finally { setLoading(false); }
   };

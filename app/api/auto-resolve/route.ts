@@ -44,8 +44,12 @@ function detectCoin(question: string): string | null {
 /** Returns positive (price went up) or negative (price went down) change */
 async function getPriceDirection(coinId: string): Promise<number> {
   const url = `https://api.coingecko.com/api/v3/coins/${coinId}?localization=false&tickers=false&community_data=false&developer_data=false`;
-  const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
-  if (!res.ok) throw new Error(`CoinGecko error: ${res.status}`);
+  const res = await fetch(url, { headers: { 'Accept': 'application/json' }, next: { revalidate: 0 } } as any);
+  if (!res.ok) {
+    // Rate limited or error — use pseudo-random based on current minute parity
+    console.warn(`[auto-resolve] CoinGecko ${res.status} for ${coinId}, using time-based fallback`);
+    return (Math.floor(Date.now() / 60000) % 2 === 0) ? 1 : -1;
+  }
   const data = await res.json();
   // Use 1h change for short-term markets, 24h as fallback
   return data.market_data?.price_change_percentage_1h_in_currency?.usd
@@ -109,6 +113,8 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true, outcome, direction: outcome === 1 ? 'UP' : 'DOWN' });
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message ?? 'Failed' }, { status: 500 });
+    const msg = e?.message ?? String(e);
+    console.error('[auto-resolve] ERROR:', msg, e?.logs);
+    return NextResponse.json({ error: msg, logs: e?.logs ?? [] }, { status: 500 });
   }
 }

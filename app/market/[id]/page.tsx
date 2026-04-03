@@ -111,6 +111,22 @@ export default function MarketPage() {
   }, [market?.deadline, market?.resolved]);
 
 
+  const handleWithdraw = async () => {
+    if (!market || !anchorWallet || !publicKey) return;
+    setClaiming(true); setMsg('');
+    try {
+      const program   = getProgram(anchorWallet, connection);
+      const marketPda = getMarketPda(BigInt(market.marketId));
+      await (program.methods as any)
+        .withdrawFees(new BN(market.marketId))
+        .accounts({ creator: publicKey, market: marketPda, systemProgram: SystemProgram.programId })
+        .rpc();
+      setMsg('✅ Funds withdrawn!');
+      await load();
+    } catch (e: any) { setMsg(`❌ ${e?.message ?? 'Failed'}`); }
+    finally { setClaiming(false); }
+  };
+
   const handleClaim = async () => {
     if (!market || !anchorWallet || !publicKey) return;
     setClaiming(true); setMsg('');
@@ -292,6 +308,17 @@ export default function MarketPage() {
                     color: '#fff', fontWeight: 600, width: '100%',
                   }}>
                     {claiming ? 'CLAIMING...' : '💰 CLAIM WINNINGS'}
+                  </button>
+                )}
+                {/* Creator withdraw — collect losing bets */}
+                {publicKey && market.creator === publicKey.toString() && (
+                  <button onClick={handleWithdraw} disabled={claiming} style={{
+                    marginTop: 8, fontFamily: 'var(--font-fira)', fontSize: 11, letterSpacing: '0.1em',
+                    padding: '10px 32px', borderRadius: 999, border: '1px solid rgba(255,255,255,0.15)',
+                    cursor: 'pointer', background: 'rgba(255,255,255,0.05)',
+                    color: 'rgba(255,255,255,0.5)', fontWeight: 600, width: '100%',
+                  }}>
+                    {claiming ? '...' : '🏦 WITHDRAW FEES (CREATOR)'}
                   </button>
                 )}
               </div>

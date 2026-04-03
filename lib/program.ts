@@ -1,6 +1,7 @@
 import { AnchorProvider, Program, BN } from '@coral-xyz/anchor';
-import { Connection, PublicKey, Transaction, TransactionInstruction } from '@solana/web3.js';
+import { Connection, PublicKey, Transaction } from '@solana/web3.js';
 import { AnchorWallet } from '@solana/wallet-adapter-react';
+import { createCommitAndUndelegateInstruction } from '@magicblock-labs/ephemeral-rollups-sdk';
 import idl from './magicbet-idl.json';
 import type { MarketAccount, BetAccount } from '../types';
 
@@ -9,22 +10,6 @@ export const DEVNET_RPC         = 'https://api.devnet.solana.com';
 export const MAGIC_ROUTER       = 'https://devnet-router.magicblock.app';
 export const DELEGATION_PROGRAM = new PublicKey('DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh');
 
-const MAGIC_PROGRAM_ID = new PublicKey('Magic11111111111111111111111111111111111111');
-const MAGIC_CONTEXT_ID = new PublicKey('MagicContext1111111111111111111111111111111');
-
-function createCommitAndUndelegateInstruction(payer: PublicKey, accounts: PublicKey[]): TransactionInstruction {
-  const data = Buffer.alloc(4);
-  data.writeUInt32LE(2, 0);
-  return new TransactionInstruction({
-    keys: [
-      { pubkey: payer,            isSigner: true,  isWritable: true },
-      { pubkey: MAGIC_CONTEXT_ID, isSigner: false, isWritable: true },
-      ...accounts.map(a => ({ pubkey: a, isSigner: false, isWritable: true })),
-    ],
-    programId: MAGIC_PROGRAM_ID,
-    data,
-  });
-}
 
 export function getProgram(wallet: AnchorWallet, connection: Connection) {
   const provider = new AnchorProvider(connection, wallet, { commitment: 'confirmed' });

@@ -112,16 +112,19 @@ export default function MarketPage() {
 
 
   const handleWithdraw = async () => {
-    if (!market || !anchorWallet || !publicKey) return;
+    if (!market) return;
+    const secret = prompt('Enter admin secret:');
+    if (!secret) return;
     setClaiming(true); setMsg('');
     try {
-      const program   = getProgram(anchorWallet, connection);
-      const marketPda = getMarketPda(BigInt(market.marketId));
-      await (program.methods as any)
-        .withdrawFees(new BN(market.marketId))
-        .accounts({ creator: publicKey, market: marketPda, systemProgram: SystemProgram.programId })
-        .rpc();
-      setMsg('✅ Funds withdrawn!');
+      const res = await fetch('/api/withdraw-market', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ marketId: market.marketId, secret }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'Failed');
+      setMsg('✅ Funds withdrawn to creator wallet!');
       await load();
     } catch (e: any) { setMsg(`❌ ${e?.message ?? 'Failed'}`); }
     finally { setClaiming(false); }
@@ -311,7 +314,7 @@ export default function MarketPage() {
                   </button>
                 )}
                 {/* Creator withdraw — collect losing bets */}
-                {publicKey && market.creator === publicKey.toString() && (
+                {market.resolved && (
                   <button onClick={handleWithdraw} disabled={claiming} style={{
                     marginTop: 8, fontFamily: 'var(--font-fira)', fontSize: 11, letterSpacing: '0.1em',
                     padding: '10px 32px', borderRadius: 999, border: '1px solid rgba(255,255,255,0.15)',

@@ -1,26 +1,107 @@
 @import "tailwindcss";
 
+/* ── MagicBlock-inspired design tokens ─────────────────────────── */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --bg:         #050508;
+  --surface:    rgba(255,255,255,0.03);
+  --surface-hv: rgba(255,255,255,0.06);
+  --border:     rgba(255,255,255,0.08);
+  --border-hv:  rgba(102,51,255,0.45);
+
+  --violet:     #6633ff;
+  --blue:       #2545f6;
+  --pink:       #de3fbc;
+  --green:      #59e09d;
+  --orange:     #f59e0b;
+
+  --text:       #ffffff;
+  --text-dim:   rgba(255,255,255,0.55);
+  --text-muted: rgba(255,255,255,0.28);
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+* { box-sizing: border-box; }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Gradient text ─────────────────────────────────────────────── */
+.grad-text {
+  background: linear-gradient(125deg, #fff 0%, #c4b5fd 35%, #7c3aed 65%, #de3fbc 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.grad-text-green {
+  background: linear-gradient(135deg, #59e09d 0%, #2545f6 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ── Glassmorphism card ────────────────────────────────────────── */
+.glass {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  backdrop-filter: blur(12px);
+  transition: background 0.2s, border-color 0.2s, transform 0.2s, box-shadow 0.2s;
+}
+.glass:hover {
+  background: var(--surface-hv);
+  border-color: var(--border-hv);
+  transform: translateY(-1px);
+  box-shadow: 0 0 24px rgba(102,51,255,0.12);
+}
+
+/* ── Gradient pill (selected filter) ───────────────────────────── */
+.pill-active {
+  background: linear-gradient(135deg, var(--violet), var(--blue));
+  border-color: transparent !important;
+  color: #fff;
+}
+.pill-asset-active {
+  background: linear-gradient(135deg, var(--violet) 0%, var(--pink) 100%);
+  border-color: transparent !important;
+  color: #fff;
+}
+
+/* ── Neon glow helpers ─────────────────────────────────────────── */
+.glow-violet { box-shadow: 0 0 20px rgba(102,51,255,0.35); }
+.glow-green  { box-shadow: 0 0 12px rgba(89,224,157,0.4);  }
+
+/* ── Scrollbar thin ────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 2px; }
+
+/* ── Font utilities ────────────────────────────────────────────── */
+.font-display { font-family: var(--font-unbounded), sans-serif; }
+.font-body    { font-family: var(--font-lexend),    sans-serif; }
+.font-mono    { font-family: var(--font-fira),      monospace;  }
+
+/* ── Live pulse ────────────────────────────────────────────────── */
+@keyframes live-pulse {
+  0%, 100% { opacity: 1;   box-shadow: 0 0 0 0 rgba(89,224,157,0.5); }
+  50%       { opacity: 0.7; box-shadow: 0 0 0 4px rgba(89,224,157,0);  }
+}
+.live-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+  animation: live-pulse 1.8s ease-in-out infinite;
+}
+
+/* ── Aurora background ─────────────────────────────────────────── */
+.aurora {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(ellipse 60% 40% at 80% 10%, rgba(102,51,255,0.07) 0%, transparent 70%),
+    radial-gradient(ellipse 50% 30% at 10% 80%, rgba(37,69,246,0.06) 0%, transparent 70%),
+    radial-gradient(ellipse 40% 30% at 50% 50%, rgba(222,63,188,0.04) 0%, transparent 70%);
 }

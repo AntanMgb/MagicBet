@@ -104,6 +104,7 @@ export default function MarketPage() {
       const freshConn = new Connection(DEVNET_RPC, 'confirmed');
       const betInfo = await freshConn.getAccountInfo(betPda, 'confirmed');
       const isInTee = betInfo === null || betInfo.owner.equals(DELEGATION_PROGRAM);
+      console.log('[CLAIM] betInfo:', betInfo ? `owner=${betInfo.owner.toString()}` : 'null', '| isInTee:', isInTee);
 
       if (isInTee) {
         setMsg('⏳ Undelegating from TEE... approve in Phantom');

@@ -12,7 +12,7 @@ const WalletMultiButton = dynamic(
 import { Connection, SystemProgram } from '@solana/web3.js';
 import { BN } from '@coral-xyz/anchor';
 import { PlaceBetForm } from '@/components/PlaceBetForm';
-import { fetchAllMarkets, getProgram, getMarketPda, getBetPda, lamportsToSol, formatDeadline, isExpired, undelegateBet, DELEGATION_PROGRAM, DEVNET_RPC } from '@/lib/program';
+import { fetchAllMarkets, getProgram, getMarketPda, getBetPda, lamportsToSol, formatDeadline, isExpired, undelegateBet, DELEGATION_PROGRAM, DEVNET_RPC, PROGRAM_ID } from '@/lib/program';
 import { fetchPythPrice } from '@/lib/markets';
 import type { MarketAccount } from '@/types';
 
@@ -108,14 +108,14 @@ export default function MarketPage() {
         setMsg('⏳ Undelegating from TEE... (may take up to 45s)');
         await undelegateBet(anchorWallet, betPda);
         setMsg('✓ Undelegated. Verifying...');
-        // Hard verify: poll until bet is owned by our program
+        // Hard verify: poll until bet is owned by OUR program specifically
         let verified = false;
-        for (let i = 0; i < 20; i++) {
+        for (let i = 0; i < 30; i++) {
           await new Promise(r => setTimeout(r, 1000));
           const check = await freshConn.getAccountInfo(betPda, 'confirmed');
-          if (check && !check.owner.equals(DELEGATION_PROGRAM)) { verified = true; break; }
+          if (check && check.owner.equals(PROGRAM_ID)) { verified = true; break; }
         }
-        if (!verified) throw new Error('Bet still locked in TEE after undelegation. Please wait 1 minute and try again.');
+        if (!verified) throw new Error('Bet still not returned from TEE. Please wait 1-2 minutes and try again.');
         setMsg('✓ Verified. Claiming...');
         await new Promise(r => setTimeout(r, 1000));
       }

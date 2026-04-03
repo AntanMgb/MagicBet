@@ -70,16 +70,27 @@ const TIMEFRAMES: { key: Timeframe; label: string; icon: string }[] = [
   { key:'ETF',        label:'ETF',        icon:'🏦'  },
 ];
 
-const ASSETS: { key: Asset; icon: string; color: string }[] = [
-  { key:'ALL',  icon:'✦',  color:'#6633ff' },
-  { key:'BTC',  icon:'₿',  color:'#f59e0b' },
-  { key:'ETH',  icon:'Ξ',  color:'#627eea' },
-  { key:'SOL',  icon:'◎',  color:'#9945ff' },
-  { key:'XRP',  icon:'✕',  color:'#00aae4' },
-  { key:'BNB',  icon:'B',  color:'#f3ba2f' },
-  { key:'BONK', icon:'🐶', color:'#e8730a' },
-  { key:'WIF',  icon:'🐕', color:'#d946ef' },
-  { key:'DOGE', icon:'Ð',  color:'#c2a633' },
+const COIN_LOGOS: Record<string, string> = {
+  BTC:  'https://assets.coingecko.com/coins/images/1/small/bitcoin.png',
+  ETH:  'https://assets.coingecko.com/coins/images/279/small/ethereum.png',
+  SOL:  'https://assets.coingecko.com/coins/images/4128/small/solana.png',
+  XRP:  'https://assets.coingecko.com/coins/images/44/small/xrp-symbol-white-128.png',
+  BNB:  'https://assets.coingecko.com/coins/images/825/small/bnb-icon2_2x.png',
+  BONK: 'https://assets.coingecko.com/coins/images/28600/small/bonk.jpg',
+  WIF:  'https://assets.coingecko.com/coins/images/33566/small/dogwifhat.jpg',
+  DOGE: 'https://assets.coingecko.com/coins/images/5/small/dogecoin.png',
+};
+
+const ASSETS: { key: Asset; color: string }[] = [
+  { key:'ALL',  color:'#6633ff' },
+  { key:'BTC',  color:'#f59e0b' },
+  { key:'ETH',  color:'#627eea' },
+  { key:'SOL',  color:'#9945ff' },
+  { key:'XRP',  color:'#00aae4' },
+  { key:'BNB',  color:'#f3ba2f' },
+  { key:'BONK', color:'#e8730a' },
+  { key:'WIF',  color:'#d946ef' },
+  { key:'DOGE', color:'#c2a633' },
 ];
 
 const SUBTYPES: { key: Subtype; label: string }[] = [
@@ -307,7 +318,11 @@ export default function HomePage() {
                     boxShadow: active ? `0 0 16px ${a.color}50` : 'none',
                   }}
                 >
-                  <span style={{ fontSize: 13 }}>{a.icon}</span>
+                  {COIN_LOGOS[a.key] ? (
+                    <img src={COIN_LOGOS[a.key]} alt={a.key} width={16} height={16} style={{ borderRadius: '50%', objectFit: 'cover', display: 'block' }} />
+                  ) : (
+                    <span style={{ fontSize: 13 }}>✦</span>
+                  )}
                   <span>{a.key}</span>
                   {cnt > 0 && <span style={{ fontSize: 10, color: active ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.3)', marginLeft: 2 }}>{cnt}</span>}
                 </button>

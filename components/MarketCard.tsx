@@ -8,19 +8,48 @@ import { lamportsToSol, isExpired } from '@/lib/program';
 interface Props { market: MarketAccount }
 
 // ── Asset meta ────────────────────────────────────────────────────────────────
+const COIN_LOGOS: Record<string, string> = {
+  BTC:   'https://assets.coingecko.com/coins/images/1/small/bitcoin.png',
+  ETH:   'https://assets.coingecko.com/coins/images/279/small/ethereum.png',
+  SOL:   'https://assets.coingecko.com/coins/images/4128/small/solana.png',
+  XRP:   'https://assets.coingecko.com/coins/images/44/small/xrp-symbol-white-128.png',
+  BNB:   'https://assets.coingecko.com/coins/images/825/small/bnb-icon2_2x.png',
+  BONK:  'https://assets.coingecko.com/coins/images/28600/small/bonk.jpg',
+  WIF:   'https://assets.coingecko.com/coins/images/33566/small/dogwifhat.jpg',
+  DOGE:  'https://assets.coingecko.com/coins/images/5/small/dogecoin.png',
+  PEPE:  'https://assets.coingecko.com/coins/images/29850/small/pepe-token.jpeg',
+  LINK:  'https://assets.coingecko.com/coins/images/877/small/chainlink-new-logo.png',
+  AVAX:  'https://assets.coingecko.com/coins/images/12559/small/Avalanche_Circle_RedWhite_Trans.png',
+  SUI:   'https://assets.coingecko.com/coins/images/26375/small/sui_asset.jpeg',
+  APT:   'https://assets.coingecko.com/coins/images/26455/small/aptos_round.png',
+  JUP:   'https://assets.coingecko.com/coins/images/34188/small/jup.png',
+  TRX:   'https://assets.coingecko.com/coins/images/1094/small/tron-logo.png',
+  RENDER:'https://assets.coingecko.com/coins/images/11636/small/rndr.png',
+  INJ:   'https://assets.coingecko.com/coins/images/12882/small/Secondary_Symbol.png',
+};
+
 function assetMeta(q: string) {
   const s = q.toLowerCase();
-  if (s.includes('btc') || s.includes('bitcoin'))     return { symbol:'BTC',  icon:'₿',  color:'#f59e0b', glow:'rgba(245,158,11,0.2)' };
+  if (s.includes('btc') || s.includes('bitcoin'))     return { symbol:'BTC',  color:'#f59e0b', glow:'rgba(245,158,11,0.2)' };
   if (s.includes('eth') || s.includes('ethereum') || s.includes('pectra'))
-                                                        return { symbol:'ETH',  icon:'Ξ',  color:'#627eea', glow:'rgba(98,126,234,0.2)'  };
+                                                        return { symbol:'ETH',  color:'#627eea', glow:'rgba(98,126,234,0.2)'  };
   if (s.includes('sol') || s.includes('solana') || s.includes('firedancer'))
-                                                        return { symbol:'SOL',  icon:'◎',  color:'#9945ff', glow:'rgba(153,69,255,0.2)'  };
-  if (s.includes('xrp') || s.includes('ripple'))       return { symbol:'XRP',  icon:'✕',  color:'#00aae4', glow:'rgba(0,170,228,0.2)'   };
-  if (s.includes('bnb') || s.includes('binance'))      return { symbol:'BNB',  icon:'B',  color:'#f3ba2f', glow:'rgba(243,186,47,0.2)'  };
-  if (s.includes('bonk'))                              return { symbol:'BONK', icon:'🐶', color:'#e8730a', glow:'rgba(232,115,10,0.2)'  };
-  if (s.includes('wif') || s.includes('dogwifhat'))    return { symbol:'WIF',  icon:'🐕', color:'#d946ef', glow:'rgba(217,70,239,0.2)'  };
-  if (s.includes('doge'))                              return { symbol:'DOGE', icon:'Ð',  color:'#c2a633', glow:'rgba(194,166,51,0.2)'  };
-  return { symbol:'CRYPTO', icon:'🔮', color:'#6633ff', glow:'rgba(102,51,255,0.2)' };
+                                                        return { symbol:'SOL',  color:'#9945ff', glow:'rgba(153,69,255,0.2)'  };
+  if (s.includes('xrp') || s.includes('ripple'))       return { symbol:'XRP',  color:'#00aae4', glow:'rgba(0,170,228,0.2)'   };
+  if (s.includes('bnb') || s.includes('binance'))      return { symbol:'BNB',  color:'#f3ba2f', glow:'rgba(243,186,47,0.2)'  };
+  if (s.includes('bonk'))                              return { symbol:'BONK', color:'#e8730a', glow:'rgba(232,115,10,0.2)'  };
+  if (s.includes('wif') || s.includes('dogwifhat'))    return { symbol:'WIF',  color:'#d946ef', glow:'rgba(217,70,239,0.2)'  };
+  if (s.includes('doge'))                              return { symbol:'DOGE', color:'#c2a633', glow:'rgba(194,166,51,0.2)'  };
+  if (s.includes('pepe'))                              return { symbol:'PEPE', color:'#4ade80', glow:'rgba(74,222,128,0.2)'  };
+  if (s.includes('link') || s.includes('chainlink'))  return { symbol:'LINK', color:'#2a5ada', glow:'rgba(42,90,218,0.2)'   };
+  if (s.includes('avax') || s.includes('avalanche'))  return { symbol:'AVAX', color:'#e84142', glow:'rgba(232,65,66,0.2)'   };
+  if (s.includes('sui'))                               return { symbol:'SUI',  color:'#4da2ff', glow:'rgba(77,162,255,0.2)'  };
+  if (s.includes('apt') || s.includes('aptos'))       return { symbol:'APT',  color:'#18b2a0', glow:'rgba(24,178,160,0.2)'  };
+  if (s.includes('jup') || s.includes('jupiter'))     return { symbol:'JUP',  color:'#c7a55a', glow:'rgba(199,165,90,0.2)'  };
+  if (s.includes('trx') || s.includes('tron'))        return { symbol:'TRX',  color:'#ef0027', glow:'rgba(239,0,39,0.2)'    };
+  if (s.includes('render') || s.includes('rndr'))     return { symbol:'RENDER',color:'#e8430a',glow:'rgba(232,67,10,0.2)'   };
+  if (s.includes('inj') || s.includes('injective'))   return { symbol:'INJ',  color:'#00b2ff', glow:'rgba(0,178,255,0.2)'   };
+  return { symbol:'CRYPTO', color:'#6633ff', glow:'rgba(102,51,255,0.2)' };
 }
 
 function formatCountdown(diff: number): string {
@@ -112,10 +141,15 @@ export function MarketCard({ market }: Props) {
             width: 36, height: 36, borderRadius: '50%', flexShrink: 0,
             background: `${asset.color}22`, border: `1px solid ${asset.color}44`,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 15, fontWeight: 700, color: asset.color,
-            fontFamily: 'var(--font-unbounded)',
+            overflow: 'hidden',
           }}>
-            {asset.icon}
+            {COIN_LOGOS[asset.symbol] ? (
+              <img src={COIN_LOGOS[asset.symbol]} alt={asset.symbol} width={28} height={28} style={{ borderRadius: '50%', objectFit: 'cover' }} />
+            ) : (
+              <span style={{ fontSize: 15, fontWeight: 700, color: asset.color, fontFamily: 'var(--font-unbounded)' }}>
+                {asset.symbol.slice(0, 2)}
+              </span>
+            )}
           </div>
 
           {/* Symbol + timeframe */}

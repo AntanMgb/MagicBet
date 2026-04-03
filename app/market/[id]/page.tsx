@@ -100,32 +100,43 @@ export default function MarketPage() {
     try {
       const betPda = getBetPda(BigInt(market.marketId), publicKey);
 
-      // If bet is still delegated, undelegate first
-      const freshConn = new Connection(DEVNET_RPC, 'confirmed');
-      const betInfo = await freshConn.getAccountInfo(betPda);
-      const needsUndelegate = betInfo === null || betInfo.owner.equals(DELEGATION_PROGRAM);
-      if (needsUndelegate) {
-        setMsg('⏳ Undelegating from TEE... (may take up to 45s)');
-        await undelegateBet(anchorWallet, betPda);
-        setMsg('✓ Undelegated. Verifying...');
-        // Hard verify: poll until bet is owned by OUR program specifically
-        let verified = false;
-        for (let i = 0; i < 30; i++) {
-          await new Promise(r => setTimeout(r, 1000));
-          const check = await freshConn.getAccountInfo(betPda, 'confirmed');
-          if (check && check.owner.equals(PROGRAM_ID)) { verified = true; break; }
-        }
-        if (!verified) throw new Error('Bet still not returned from TEE. Please wait 1-2 minutes and try again.');
-        setMsg('✓ Verified. Claiming...');
-        await new Promise(r => setTimeout(r, 1000));
-      }
-
       const program   = getProgram(anchorWallet, connection);
       const marketPda = getMarketPda(BigInt(market.marketId));
-      await (program.methods as any)
-        .claimWinnings(new BN(market.marketId))
-        .accounts({ user: publicKey, market: marketPda, systemProgram: SystemProgram.programId })
-        .rpc();
+
+      const doClaim = async () => {
+        await (program.methods as any)
+          .claimWinnings(new BN(market.marketId))
+          .accounts({ user: publicKey, market: marketPda, systemProgram: SystemProgram.programId })
+          .rpc();
+      };
+
+      try {
+        // Try claim directly first
+        await doClaim();
+      } catch (e: any) {
+        const isWrongOwner = e?.message?.includes('AccountOwnedByWrongProgram') ||
+                             e?.message?.includes('3007');
+        if (!isWrongOwner) throw e;
+
+        // Bet is in TEE — undelegate first
+        setMsg('⏳ Undelegating from TEE... (may take up to 45s)');
+        await undelegateBet(anchorWallet, betPda);
+        setMsg('✓ Undelegated. Waiting for L1 finalization...');
+
+        // Wait for L1 to show PROGRAM_ID as owner
+        const freshConn = new Connection(DEVNET_RPC, 'confirmed');
+        let ready = false;
+        for (let i = 0; i < 30; i++) {
+          await new Promise(r => setTimeout(r, 1000));
+          const info = await freshConn.getAccountInfo(betPda, 'confirmed');
+          if (info && info.owner.equals(PROGRAM_ID)) { ready = true; break; }
+        }
+        if (!ready) throw new Error('Bet still in TEE after 30s. Please try again in 1 minute.');
+
+        setMsg('✓ Ready. Claiming...');
+        await new Promise(r => setTimeout(r, 500));
+        await doClaim();
+      }
       setMsg('💰 Winnings claimed!');
       await load();
     } catch (e: any) { setMsg(`❌ ${e?.message ?? 'Failed'}`); }

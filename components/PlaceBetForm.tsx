@@ -201,9 +201,24 @@ export function PlaceBetForm({ market, onSuccess }: Props) {
           <div style={{ fontFamily: 'var(--font-unbounded)', fontWeight: 800, fontSize: 13, color: '#a78bfa', marginBottom: 6 }}>
             LOCKED IN TEE
           </div>
-          <div style={{ fontFamily: 'var(--font-fira)', fontSize: 10, color: 'rgba(255,255,255,0.25)', lineHeight: 1.6 }}>
+          <div style={{ fontFamily: 'var(--font-fira)', fontSize: 10, color: 'rgba(255,255,255,0.25)', lineHeight: 1.6, marginBottom: 10 }}>
             Encrypted inside MagicBlock Intel TDX.<br />One bet per wallet per market.
           </div>
+          {publicKey && (() => {
+            const betPda = getBetPda(BigInt(market.marketId), publicKey);
+            const explorerUrl = `https://explorer.solana.com/address/${betPda.toString()}?cluster=devnet`;
+            return (
+              <a href={explorerUrl} target="_blank" rel="noopener noreferrer" style={{
+                display: 'inline-block',
+                fontFamily: 'var(--font-fira)', fontSize: 9, letterSpacing: '0.12em',
+                color: '#6633ff', textDecoration: 'none',
+                border: '1px solid rgba(102,51,255,0.3)', borderRadius: 6,
+                padding: '5px 12px',
+              }}>
+                VIEW ON EXPLORER ↗
+              </a>
+            );
+          })()}
         </div>
       </div>
     );
@@ -253,9 +268,24 @@ export function PlaceBetForm({ market, onSuccess }: Props) {
           <div style={{ fontFamily: 'var(--font-unbounded)', fontWeight: 800, fontSize: 13, color: '#a78bfa', marginBottom: 6 }}>
             LOCKED IN TEE
           </div>
-          <div style={{ fontFamily: 'var(--font-fira)', fontSize: 10, color: 'rgba(255,255,255,0.25)', lineHeight: 1.6 }}>
+          <div style={{ fontFamily: 'var(--font-fira)', fontSize: 10, color: 'rgba(255,255,255,0.25)', lineHeight: 1.6, marginBottom: 10 }}>
             Encrypted inside MagicBlock Intel TDX.<br />Nobody can see your position until resolution.
           </div>
+          {publicKey && (() => {
+            const betPda = getBetPda(BigInt(market.marketId), publicKey);
+            const explorerUrl = `https://explorer.solana.com/address/${betPda.toString()}?cluster=devnet`;
+            return (
+              <a href={explorerUrl} target="_blank" rel="noopener noreferrer" style={{
+                display: 'inline-block',
+                fontFamily: 'var(--font-fira)', fontSize: 9, letterSpacing: '0.12em',
+                color: '#6633ff', textDecoration: 'none',
+                border: '1px solid rgba(102,51,255,0.3)', borderRadius: 6,
+                padding: '5px 12px',
+              }}>
+                VIEW ON EXPLORER ↗
+              </a>
+            );
+          })()}
         </div>
       </div>
     );

@@ -100,19 +100,25 @@ export default function MarketPage() {
     try {
       const betPda = getBetPda(BigInt(market.marketId), publicKey);
 
-      // Always undelegate first — bet may be in TEE
-      setMsg('⏳ Undelegating from TEE...');
-      try {
-        await undelegateBet(anchorWallet, betPda);
-        setMsg('✓ Undelegated. Waiting...');
-        await new Promise(r => setTimeout(r, 3000));
-      } catch (undelegateErr: any) {
-        // If it fails because account is already on L1 — that's fine, continue
-        if (!undelegateErr?.message?.includes('timed out')) {
-          setMsg('ℹ️ Already on L1. Claiming...');
-        } else {
-          throw undelegateErr;
+      // Check ownership on L1
+      const freshConn = new Connection(DEVNET_RPC, 'confirmed');
+      const betInfo = await freshConn.getAccountInfo(betPda, 'confirmed');
+      const isInTee = betInfo === null || betInfo.owner.equals(DELEGATION_PROGRAM);
+
+      if (isInTee) {
+        setMsg('⏳ Undelegating from TEE... approve in Phantom');
+        await undelegateBet(anchorWallet, betPda); // throws if user rejects or times out
+        setMsg('✓ Undelegated. Waiting for L1...');
+        // Poll until PROGRAM_ID owns the account
+        let ready = false;
+        for (let i = 0; i < 40; i++) {
+          await new Promise(r => setTimeout(r, 1000));
+          const info = await freshConn.getAccountInfo(betPda, 'confirmed');
+          if (info && info.owner.equals(PROGRAM_ID)) { ready = true; break; }
         }
+        if (!ready) throw new Error('Bet not returned from TEE after 40s. Please try again.');
+        setMsg('✓ Ready. Claiming...');
+        await new Promise(r => setTimeout(r, 500));
       }
 
       const program   = getProgram(anchorWallet, connection);

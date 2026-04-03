@@ -30,16 +30,23 @@ export function PlaceBetForm({ market, onSuccess }: Props) {
   const [loading,      setLoading]      = useState(false);
   const [step,         setStep]         = useState<Step>('idle');
   const [error,        setError]        = useState('');
-  const [alreadyBet,   setAlreadyBet]   = useState(false);
+  const [betInTee,     setBetInTee]     = useState(false);
+  const [existingBet,  setExistingBet]  = useState<{ outcome: 1|2; amount: number } | null>(null);
 
-  // Check on mount if user already has a delegated bet for this market
+  // Check on mount: is bet delegated to TEE + load from localStorage
   useEffect(() => {
     if (!publicKey) return;
     const betPda = getBetPda(BigInt(market.marketId), publicKey);
     const conn = new Connection(DEVNET_RPC, 'processed');
     conn.getAccountInfo(betPda).then(info => {
-      if (info?.owner.equals(DELEGATION_PROGRAM)) setAlreadyBet(true);
+      if (info?.owner.equals(DELEGATION_PROGRAM)) setBetInTee(true);
     }).catch(() => {});
+    try {
+      const key = `magicbet_bets_${publicKey.toString()}`;
+      const bets: any[] = JSON.parse(localStorage.getItem(key) || '[]');
+      const mine = bets.find(b => b.marketId === market.marketId);
+      if (mine) setExistingBet({ outcome: mine.outcome, amount: mine.amount });
+    } catch {}
   }, [publicKey, market.marketId]);
 
   const handlePlaceBet = async () => {
@@ -174,21 +181,40 @@ export function PlaceBetForm({ market, onSuccess }: Props) {
     }
   };
 
-  // ── Already bet ─────────────────────────────────────────────────
-  if (alreadyBet) {
+  // ── If bet is in TEE, show locked state (can't bet again on same market)
+  if (betInTee) {
     return (
-      <div style={{
-        borderRadius: 16, padding: '28px', textAlign: 'center',
-        background: 'rgba(102,51,255,0.06)', border: '1px solid rgba(102,51,255,0.2)',
-      }}>
-        <div style={{ fontSize: 36, marginBottom: 12 }}>🔒</div>
-        <div style={{ fontFamily: 'var(--font-unbounded)', fontWeight: 800, fontSize: 14, color: '#a78bfa', marginBottom: 8 }}>
-          BET PLACED
-        </div>
-        <div style={{ fontFamily: 'var(--font-fira)', fontSize: 11, color: 'rgba(255,255,255,0.3)', lineHeight: 1.7 }}>
-          Your bet is encrypted inside<br />
-          MagicBlock Intel TDX TEE.<br />
-          <span style={{ color: 'rgba(255,255,255,0.15)' }}>One bet per wallet per market.</span>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {existingBet && (
+          <div style={{
+            borderRadius: 14, padding: '16px 20px',
+            background: existingBet.outcome === 1 ? 'rgba(89,224,157,0.08)' : 'rgba(222,63,188,0.08)',
+            border: `1px solid ${existingBet.outcome === 1 ? 'rgba(89,224,157,0.25)' : 'rgba(222,63,188,0.25)'}`,
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          }}>
+            <div>
+              <div style={{ fontFamily: 'var(--font-fira)', fontSize: 9, letterSpacing: '0.15em', color: 'rgba(255,255,255,0.3)', marginBottom: 4 }}>YOUR BET</div>
+              <div style={{ fontFamily: 'var(--font-unbounded)', fontWeight: 800, fontSize: 18, color: existingBet.outcome === 1 ? '#59e09d' : '#de3fbc' }}>
+                {existingBet.outcome === 1 ? 'YES' : 'NO'}
+              </div>
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontFamily: 'var(--font-fira)', fontSize: 9, letterSpacing: '0.15em', color: 'rgba(255,255,255,0.3)', marginBottom: 4 }}>AMOUNT</div>
+              <div style={{ fontFamily: 'var(--font-unbounded)', fontWeight: 700, fontSize: 16, color: '#fff' }}>{existingBet.amount} SOL</div>
+            </div>
+          </div>
+        )}
+        <div style={{
+          borderRadius: 14, padding: '16px 20px', textAlign: 'center',
+          background: 'rgba(102,51,255,0.06)', border: '1px solid rgba(102,51,255,0.2)',
+        }}>
+          <div style={{ fontSize: 28, marginBottom: 8 }}>🔒</div>
+          <div style={{ fontFamily: 'var(--font-unbounded)', fontWeight: 800, fontSize: 13, color: '#a78bfa', marginBottom: 6 }}>
+            LOCKED IN TEE
+          </div>
+          <div style={{ fontFamily: 'var(--font-fira)', fontSize: 10, color: 'rgba(255,255,255,0.25)', lineHeight: 1.6 }}>
+            Encrypted inside MagicBlock Intel TDX.<br />One bet per wallet per market.
+          </div>
         </div>
       </div>
     );
@@ -249,6 +275,24 @@ export function PlaceBetForm({ market, onSuccess }: Props) {
 
   return (
     <div className="glass" style={{ borderRadius: 16, padding: '24px', display: 'flex', flexDirection: 'column', gap: 18 }}>
+      {/* Existing bet banner */}
+      {existingBet && (
+        <div style={{
+          borderRadius: 12, padding: '12px 16px',
+          background: existingBet.outcome === 1 ? 'rgba(89,224,157,0.08)' : 'rgba(222,63,188,0.08)',
+          border: `1px solid ${existingBet.outcome === 1 ? 'rgba(89,224,157,0.2)' : 'rgba(222,63,188,0.2)'}`,
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        }}>
+          <div style={{ fontFamily: 'var(--font-fira)', fontSize: 10, color: 'rgba(255,255,255,0.4)' }}>
+            Your bet: <span style={{ color: existingBet.outcome === 1 ? '#59e09d' : '#de3fbc', fontWeight: 700 }}>
+              {existingBet.outcome === 1 ? 'YES' : 'NO'}
+            </span> · {existingBet.amount} SOL
+          </div>
+          <div style={{ fontFamily: 'var(--font-fira)', fontSize: 9, color: 'rgba(255,255,255,0.2)', letterSpacing: '0.1em' }}>
+            BET AGAIN ↓
+          </div>
+        </div>
+      )}
       {/* Title */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <div style={{

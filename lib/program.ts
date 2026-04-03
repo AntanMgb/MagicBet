@@ -132,10 +132,11 @@ export async function undelegateBet(wallet: AnchorWallet, betPda: PublicKey): Pr
   const signed = await wallet.signTransaction(tx);
   await erConn.sendRawTransaction(signed.serialize(), { skipPreflight: true });
 
-  // Poll L1 until ownership returns to our program (max 15s)
-  for (let i = 0; i < 30; i++) {
+  // Poll L1 until ownership returns to our program (max 30s)
+  for (let i = 0; i < 60; i++) {
     await new Promise(r => setTimeout(r, 500));
     const info = await l1Conn.getAccountInfo(betPda);
     if (info && !info.owner.equals(DELEGATION_PROGRAM)) return;
   }
+  throw new Error('Undelegation timed out. The bet is still in the TEE. Please wait a moment and try again.');
 }

@@ -9,10 +9,10 @@ const WalletMultiButton = dynamic(
   () => import('@solana/wallet-adapter-react-ui').then(m => m.WalletMultiButton),
   { ssr: false }
 );
-import { SystemProgram } from '@solana/web3.js';
+import { Connection, SystemProgram } from '@solana/web3.js';
 import { BN } from '@coral-xyz/anchor';
 import { PlaceBetForm } from '@/components/PlaceBetForm';
-import { fetchAllMarkets, getProgram, getMarketPda, getBetPda, lamportsToSol, formatDeadline, isExpired, undelegateBet, DELEGATION_PROGRAM } from '@/lib/program';
+import { fetchAllMarkets, getProgram, getMarketPda, getBetPda, lamportsToSol, formatDeadline, isExpired, undelegateBet, DELEGATION_PROGRAM, DEVNET_RPC } from '@/lib/program';
 import { fetchPythPrice } from '@/lib/markets';
 import type { MarketAccount } from '@/types';
 
@@ -101,10 +101,14 @@ export default function MarketPage() {
       const betPda = getBetPda(BigInt(market.marketId), publicKey);
 
       // If bet is still delegated, undelegate first
-      const betInfo = await connection.getAccountInfo(betPda);
+      const freshConn = new Connection(DEVNET_RPC, 'confirmed');
+      const betInfo = await freshConn.getAccountInfo(betPda);
       if (betInfo?.owner.equals(DELEGATION_PROGRAM)) {
-        setMsg('⏳ Undelegating from TEE...');
+        setMsg('⏳ Undelegating from TEE... (may take up to 30s)');
         await undelegateBet(anchorWallet, betPda);
+        setMsg('✓ Undelegated. Claiming...');
+        // Extra wait for L1 to finalize
+        await new Promise(r => setTimeout(r, 2000));
       }
 
       const program   = getProgram(anchorWallet, connection);

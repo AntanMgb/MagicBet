@@ -238,18 +238,35 @@ export function PlaceBetForm({ market, onSuccess }: Props) {
   // ── Success ──────────────────────────────────────────────────────
   if (step === 'done') {
     return (
-      <div style={{
-        borderRadius: 16, padding: '28px', textAlign: 'center',
-        background: 'rgba(89,224,157,0.06)', border: '1px solid rgba(89,224,157,0.2)',
-      }}>
-        <div style={{ fontSize: 36, marginBottom: 12 }}>🔒</div>
-        <div style={{ fontFamily: 'var(--font-unbounded)', fontWeight: 800, fontSize: 15, color: '#59e09d', marginBottom: 8 }}>
-          BET PLACED PRIVATELY
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{
+          borderRadius: 14, padding: '16px 20px',
+          background: outcome === 1 ? 'rgba(89,224,157,0.08)' : 'rgba(222,63,188,0.08)',
+          border: `1px solid ${outcome === 1 ? 'rgba(89,224,157,0.25)' : 'rgba(222,63,188,0.25)'}`,
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        }}>
+          <div>
+            <div style={{ fontFamily: 'var(--font-fira)', fontSize: 9, letterSpacing: '0.15em', color: 'rgba(255,255,255,0.3)', marginBottom: 4 }}>YOUR BET</div>
+            <div style={{ fontFamily: 'var(--font-unbounded)', fontWeight: 800, fontSize: 22, color: outcome === 1 ? '#59e09d' : '#de3fbc' }}>
+              {outcome === 1 ? 'YES' : 'NO'}
+            </div>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontFamily: 'var(--font-fira)', fontSize: 9, letterSpacing: '0.15em', color: 'rgba(255,255,255,0.3)', marginBottom: 4 }}>AMOUNT</div>
+            <div style={{ fontFamily: 'var(--font-unbounded)', fontWeight: 700, fontSize: 18, color: '#fff' }}>{amount} SOL</div>
+          </div>
         </div>
-        <div style={{ fontFamily: 'var(--font-fira)', fontSize: 11, color: 'rgba(255,255,255,0.35)', lineHeight: 1.7 }}>
-          Your {outcome === 1 ? 'YES' : 'NO'} bet of {amount} SOL is encrypted<br />
-          inside MagicBlock Intel TDX TEE.<br />
-          <span style={{ color: 'rgba(255,255,255,0.2)' }}>Nobody can see your position until resolution.</span>
+        <div style={{
+          borderRadius: 14, padding: '16px 20px', textAlign: 'center',
+          background: 'rgba(102,51,255,0.06)', border: '1px solid rgba(102,51,255,0.2)',
+        }}>
+          <div style={{ fontSize: 24, marginBottom: 8 }}>🔒</div>
+          <div style={{ fontFamily: 'var(--font-unbounded)', fontWeight: 800, fontSize: 13, color: '#a78bfa', marginBottom: 6 }}>
+            LOCKED IN TEE
+          </div>
+          <div style={{ fontFamily: 'var(--font-fira)', fontSize: 10, color: 'rgba(255,255,255,0.25)', lineHeight: 1.6 }}>
+            Encrypted inside MagicBlock Intel TDX.<br />Nobody can see your position until resolution.
+          </div>
         </div>
       </div>
     );

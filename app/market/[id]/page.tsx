@@ -100,43 +100,27 @@ export default function MarketPage() {
     try {
       const betPda = getBetPda(BigInt(market.marketId), publicKey);
 
+      // Always undelegate first — bet may be in TEE
+      setMsg('⏳ Undelegating from TEE...');
+      try {
+        await undelegateBet(anchorWallet, betPda);
+        setMsg('✓ Undelegated. Waiting...');
+        await new Promise(r => setTimeout(r, 3000));
+      } catch (undelegateErr: any) {
+        // If it fails because account is already on L1 — that's fine, continue
+        if (!undelegateErr?.message?.includes('timed out')) {
+          setMsg('ℹ️ Already on L1. Claiming...');
+        } else {
+          throw undelegateErr;
+        }
+      }
+
       const program   = getProgram(anchorWallet, connection);
       const marketPda = getMarketPda(BigInt(market.marketId));
-
-      const doClaim = async () => {
-        await (program.methods as any)
-          .claimWinnings(new BN(market.marketId))
-          .accounts({ user: publicKey, market: marketPda, systemProgram: SystemProgram.programId })
-          .rpc();
-      };
-
-      try {
-        // Try claim directly first
-        await doClaim();
-      } catch (e: any) {
-        const isWrongOwner = e?.message?.includes('AccountOwnedByWrongProgram') ||
-                             e?.message?.includes('3007');
-        if (!isWrongOwner) throw e;
-
-        // Bet is in TEE — undelegate first
-        setMsg('⏳ Undelegating from TEE... (may take up to 45s)');
-        await undelegateBet(anchorWallet, betPda);
-        setMsg('✓ Undelegated. Waiting for L1 finalization...');
-
-        // Wait for L1 to show PROGRAM_ID as owner
-        const freshConn = new Connection(DEVNET_RPC, 'confirmed');
-        let ready = false;
-        for (let i = 0; i < 30; i++) {
-          await new Promise(r => setTimeout(r, 1000));
-          const info = await freshConn.getAccountInfo(betPda, 'confirmed');
-          if (info && info.owner.equals(PROGRAM_ID)) { ready = true; break; }
-        }
-        if (!ready) throw new Error('Bet still in TEE after 30s. Please try again in 1 minute.');
-
-        setMsg('✓ Ready. Claiming...');
-        await new Promise(r => setTimeout(r, 500));
-        await doClaim();
-      }
+      await (program.methods as any)
+        .claimWinnings(new BN(market.marketId))
+        .accounts({ user: publicKey, market: marketPda, systemProgram: SystemProgram.programId })
+        .rpc();
       setMsg('💰 Winnings claimed!');
       await load();
     } catch (e: any) { setMsg(`❌ ${e?.message ?? 'Failed'}`); }

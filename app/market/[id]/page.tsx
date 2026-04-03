@@ -103,11 +103,11 @@ export default function MarketPage() {
       // If bet is still delegated, undelegate first
       const freshConn = new Connection(DEVNET_RPC, 'confirmed');
       const betInfo = await freshConn.getAccountInfo(betPda);
-      if (betInfo?.owner.equals(DELEGATION_PROGRAM)) {
-        setMsg('⏳ Undelegating from TEE... (may take up to 30s)');
+      const needsUndelegate = betInfo === null || betInfo.owner.equals(DELEGATION_PROGRAM);
+      if (needsUndelegate) {
+        setMsg('⏳ Undelegating from TEE... (may take up to 45s)');
         await undelegateBet(anchorWallet, betPda);
         setMsg('✓ Undelegated. Claiming...');
-        // Extra wait for L1 to finalize
         await new Promise(r => setTimeout(r, 2000));
       }
 

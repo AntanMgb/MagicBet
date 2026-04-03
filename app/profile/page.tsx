@@ -79,9 +79,11 @@ export default function ProfilePage() {
 
       // Undelegate from TEE first if needed
       const betInfo = await connection.getAccountInfo(betPda);
-      if (betInfo?.owner.equals(DELEGATION_PROGRAM)) {
-        setMsg('⏳ Undelegating from TEE...');
+      const needsUndelegate = betInfo === null || betInfo.owner.equals(DELEGATION_PROGRAM);
+      if (needsUndelegate) {
+        setMsg('⏳ Undelegating from TEE... (may take up to 45s)');
         await undelegateBet(anchorWallet, betPda);
+        await new Promise(r => setTimeout(r, 2000));
       }
 
       const program = getProgram(anchorWallet, connection);

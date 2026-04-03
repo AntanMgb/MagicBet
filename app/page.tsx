@@ -181,12 +181,9 @@ export default function HomePage() {
   const totalVol = markets.reduce((a, m) => a + Number(m.totalYes) + Number(m.totalNo), 0);
 
   const displayed = useMemo(() => {
-    const now = Math.floor(Date.now() / 1000);
     return markets.filter((m) => {
       if (m.resolved || isExpired(m.deadline)) return false;
       const tf = detectTimeframe(m.question);
-      const maxSecs = TF_MAX_SECS[tf];
-      if (maxSecs && (Number(m.deadline) - now) > maxSecs) return false;
       if (timeframe !== 'ALL' && tf !== timeframe) return false;
       if (subtype   !== 'ALL' && detectSubtype(m.question) !== subtype) return false;
       if (asset     !== 'ALL' && detectAsset(m.question)   !== asset)   return false;

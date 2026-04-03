@@ -9,10 +9,10 @@ const WalletMultiButton = dynamic(
   () => import('@solana/wallet-adapter-react-ui').then(m => m.WalletMultiButton),
   { ssr: false }
 );
-import { Connection, SystemProgram } from '@solana/web3.js';
+import { SystemProgram } from '@solana/web3.js';
 import { BN } from '@coral-xyz/anchor';
 import { PlaceBetForm } from '@/components/PlaceBetForm';
-import { fetchAllMarkets, getProgram, getMarketPda, getBetPda, lamportsToSol, formatDeadline, isExpired, undelegateBet, DELEGATION_PROGRAM, DEVNET_RPC, PROGRAM_ID } from '@/lib/program';
+import { fetchAllMarkets, getProgram, getMarketPda, lamportsToSol, formatDeadline, isExpired } from '@/lib/program';
 import { fetchPythPrice } from '@/lib/markets';
 import type { MarketAccount } from '@/types';
 
@@ -98,31 +98,6 @@ export default function MarketPage() {
     if (!market || !anchorWallet || !publicKey) return;
     setClaiming(true); setMsg('');
     try {
-      const betPda = getBetPda(BigInt(market.marketId), publicKey);
-
-      // Check ownership on L1
-      const freshConn = new Connection(DEVNET_RPC, 'confirmed');
-      const betInfo = await freshConn.getAccountInfo(betPda, 'confirmed');
-      const isInTee = betInfo === null || betInfo.owner.equals(DELEGATION_PROGRAM);
-      console.log('[CLAIM] betInfo:', betInfo ? `owner=${betInfo.owner.toString()}` : 'null', '| isInTee:', isInTee);
-
-      if (isInTee) {
-        setMsg('⏳ Undelegating from TEE... approve in Phantom');
-        await undelegateBet(anchorWallet, betPda);
-        // Wait for L1 finalization with finalized commitment
-        setMsg('✓ Undelegated. Waiting for finalization (30s)...');
-        const finalizedConn = new Connection(DEVNET_RPC, 'finalized');
-        let ready = false;
-        for (let i = 0; i < 60; i++) {
-          await new Promise(r => setTimeout(r, 1000));
-          const info = await finalizedConn.getAccountInfo(betPda);
-          if (info && info.owner.equals(PROGRAM_ID)) { ready = true; break; }
-        }
-        if (!ready) throw new Error('Bet not returned from TEE. Please wait 1 minute and try again.');
-        setMsg('✓ Finalized. Claiming...');
-        await new Promise(r => setTimeout(r, 1000));
-      }
-
       const program   = getProgram(anchorWallet, connection);
       const marketPda = getMarketPda(BigInt(market.marketId));
       await (program.methods as any)

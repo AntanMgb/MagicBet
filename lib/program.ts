@@ -1,7 +1,10 @@
 import { AnchorProvider, Program, BN } from '@coral-xyz/anchor';
-import { Connection, PublicKey, Transaction } from '@solana/web3.js';
+import { Connection, PublicKey, SystemProgram, Transaction } from '@solana/web3.js';
 import { AnchorWallet } from '@solana/wallet-adapter-react';
-import { createCommitAndUndelegateInstruction } from '@magicblock-labs/ephemeral-rollups-sdk';
+import {
+  createCommitAndUndelegateInstruction,
+  undelegateBufferPdaFromDelegatedAccount,
+} from '@magicblock-labs/ephemeral-rollups-sdk';
 import idl from './magicbet-idl.json';
 import type { MarketAccount, BetAccount } from '../types';
 
@@ -103,33 +106,44 @@ export function isExpired(deadline: number): boolean {
  * Commit + undelegate a bet PDA from the ER back to L1.
  * Must be called before claim_winnings when the bet was delegated.
  */
-export async function undelegateBet(wallet: AnchorWallet, betPda: PublicKey): Promise<void> {
-  const erConn = new Connection(MAGIC_ROUTER, 'confirmed');
-  const l1Conn = new Connection(DEVNET_RPC,   'finalized');
+export async function undelegateBet(wallet: AnchorWallet, betPda: PublicKey, marketId: bigint): Promise<void> {
+  const l1Conn = new Connection(DEVNET_RPC, 'confirmed');
+  const provider = new AnchorProvider(l1Conn, wallet, { commitment: 'confirmed' });
+  const program = new Program(idl as never, provider);
 
-  const ix = createCommitAndUndelegateInstruction(wallet.publicKey, [betPda]);
-  const tx = new Transaction();
-  tx.add(ix);
-  const { blockhash, lastValidBlockHeight } = await erConn.getLatestBlockhash('confirmed');
-  tx.recentBlockhash = blockhash;
-  tx.feePayer = wallet.publicKey;
+  // Buffer PDA used by delegation program during undelegation
+  const bufferPda = undelegateBufferPdaFromDelegatedAccount(betPda);
 
-  const signed = await wallet.signTransaction(tx);
-  const sig = await erConn.sendRawTransaction(signed.serialize(), { skipPreflight: true });
+  // Seeds for the bet PDA: ["bet", market_id_le8, user_pubkey]
+  const marketIdBuf = Buffer.from(new BN(marketId.toString()).toArrayLike(Buffer, 'le', 8));
+  const accountSeeds = [
+    Buffer.from('bet'),
+    marketIdBuf,
+    wallet.publicKey.toBuffer(),
+  ];
 
-  // Confirm on ER first
+  console.log('[UNDELEGATE] calling process_undelegation on L1');
+  await (program.methods as any)
+    .processUndelegation(accountSeeds)
+    .accounts({
+      baseAccount: betPda,
+      buffer: bufferPda,
+      payer: wallet.publicKey,
+      systemProgram: SystemProgram.programId,
+    })
+    .rpc();
+  console.log('[UNDELEGATE] process_undelegation done');
+
+  // Also try ER commit+undelegate in background
   try {
-    await erConn.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, 'confirmed');
-  } catch {
-    // ER may not support confirmTransaction — continue to poll L1
-  }
-
-  // Poll L1 until ownership returns to our program (max 45s)
-  for (let i = 0; i < 90; i++) {
-    await new Promise(r => setTimeout(r, 500));
-    const info = await l1Conn.getAccountInfo(betPda);
-    if (info && !info.owner.equals(DELEGATION_PROGRAM)) return;
-    if (i > 10 && info === null) throw new Error('Bet account not found on L1. It may have already been claimed.');
-  }
-  throw new Error('Undelegation timed out after 45s. The bet is still in the TEE. Please try again in a minute.');
+    const erConn = new Connection(MAGIC_ROUTER, 'confirmed');
+    const ix = createCommitAndUndelegateInstruction(wallet.publicKey, [betPda]);
+    const tx = new Transaction();
+    tx.add(ix);
+    const { blockhash } = await erConn.getLatestBlockhash('confirmed');
+    tx.recentBlockhash = blockhash;
+    tx.feePayer = wallet.publicKey;
+    const signed = await wallet.signTransaction(tx);
+    await erConn.sendRawTransaction(signed.serialize(), { skipPreflight: true });
+  } catch {}
 }

@@ -6,7 +6,7 @@ import { useWallet, useConnection, useAnchorWallet } from '@solana/wallet-adapte
 import dynamic from 'next/dynamic';
 import { BN } from '@coral-xyz/anchor';
 import { SystemProgram } from '@solana/web3.js';
-import { fetchAllMarkets, getProgram, getMarketPda, getBetPda, lamportsToSol, isExpired, undelegateBet, DELEGATION_PROGRAM } from '@/lib/program';
+import { fetchAllMarkets, getProgram, getMarketPda, isExpired } from '@/lib/program';
 import type { MarketAccount } from '@/types';
 
 const WalletMultiButton = dynamic(
@@ -75,17 +75,6 @@ export default function ProfilePage() {
     if (!anchorWallet || !publicKey || !bet.market) return;
     setClaimingId(bet.marketId);
     try {
-      const betPda = getBetPda(BigInt(bet.marketId), publicKey);
-
-      // Undelegate from TEE first if needed
-      const betInfo = await connection.getAccountInfo(betPda);
-      const needsUndelegate = betInfo === null || betInfo.owner.equals(DELEGATION_PROGRAM);
-      if (needsUndelegate) {
-        setMsg('⏳ Undelegating from TEE... (may take up to 45s)');
-        await undelegateBet(anchorWallet, betPda);
-        await new Promise(r => setTimeout(r, 2000));
-      }
-
       const program = getProgram(anchorWallet, connection);
       const marketPda = getMarketPda(BigInt(bet.marketId));
       await (program.methods as any)
@@ -117,7 +106,6 @@ export default function ProfilePage() {
 
   const wonBets    = bets.filter(b => b.status === 'won');
   const activeBets = bets.filter(b => b.status === 'active');
-  const pendingBets = bets.filter(b => b.status === 'pending_resolution');
   const lostBets   = bets.filter(b => b.status === 'lost');
   const totalWagered = bets.reduce((s, b) => s + b.amount, 0);
 

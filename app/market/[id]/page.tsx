@@ -107,8 +107,17 @@ export default function MarketPage() {
       if (needsUndelegate) {
         setMsg('⏳ Undelegating from TEE... (may take up to 45s)');
         await undelegateBet(anchorWallet, betPda);
-        setMsg('✓ Undelegated. Claiming...');
-        await new Promise(r => setTimeout(r, 2000));
+        setMsg('✓ Undelegated. Verifying...');
+        // Hard verify: poll until bet is owned by our program
+        let verified = false;
+        for (let i = 0; i < 20; i++) {
+          await new Promise(r => setTimeout(r, 1000));
+          const check = await freshConn.getAccountInfo(betPda, 'confirmed');
+          if (check && !check.owner.equals(DELEGATION_PROGRAM)) { verified = true; break; }
+        }
+        if (!verified) throw new Error('Bet still locked in TEE after undelegation. Please wait 1 minute and try again.');
+        setMsg('✓ Verified. Claiming...');
+        await new Promise(r => setTimeout(r, 1000));
       }
 
       const program   = getProgram(anchorWallet, connection);

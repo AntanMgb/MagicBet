@@ -64,7 +64,7 @@ export default function ProfilePage() {
         return { ...b, market, status };
       });
 
-      setBets(enriched.sort((a, b) => b.timestamp - a.timestamp).slice(0, 100));
+      setBets(enriched.sort((a, b) => b.timestamp - a.timestamp));
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
   };

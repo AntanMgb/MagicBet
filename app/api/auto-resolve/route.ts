@@ -103,7 +103,7 @@ export async function POST(req: Request) {
     }
 
     await (program.methods as any)
-      .resolveMarket(new BN(marketId), null, new BN(outcome))
+      .resolveMarket(new BN(marketId), null, outcome)
       .accounts({ resolver: payer.publicKey, market: marketPda, systemProgram: SystemProgram.programId })
       .rpc();
 

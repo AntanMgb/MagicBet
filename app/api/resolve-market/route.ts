@@ -39,7 +39,7 @@ export async function POST(req: Request) {
     const manualOutcome = outcome ? outcome : null; // 1=YES, 2=NO
 
     await (program.methods as any)
-      .resolveMarket(new BN(marketId), null, manualOutcome ? new BN(manualOutcome) : null)
+      .resolveMarket(new BN(marketId), null, manualOutcome ?? null)
       .accounts({ resolver: payer.publicKey, market: marketPda, systemProgram: SystemProgram.programId })
       .rpc();
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useWallet, useConnection, useAnchorWallet } from '@solana/wallet-adapter-react';
@@ -46,6 +46,8 @@ export default function MarketPage() {
   const [currentPrice, setCurrentPrice] = useState<number | null>(null);
   const [msg,          setMsg]          = useState('');
   const [userBetOutcome, setUserBetOutcome] = useState<1 | 2 | null>(null);
+  const [now,          setNow]          = useState(() => Date.now());
+  const deadlineTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const marketId = params.id as string;
   const color = market ? assetColor(market.question) : '#6633ff';
@@ -93,6 +95,21 @@ export default function MarketPage() {
 
   useEffect(() => { load(); }, [marketId]);
 
+  // Tick every second so deadline expiry is detected without page refresh
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // When market is loaded and not yet expired, schedule a load() right after deadline
+  useEffect(() => {
+    if (!market || market.resolved) return;
+    const msUntilDeadline = market.deadline * 1000 - Date.now();
+    if (msUntilDeadline <= 0) return;
+    deadlineTimerRef.current = setTimeout(() => { load(); }, msUntilDeadline + 1000);
+    return () => { if (deadlineTimerRef.current) clearTimeout(deadlineTimerRef.current); };
+  }, [market?.deadline, market?.resolved]);
+
 
   const handleClaim = async () => {
     if (!market || !anchorWallet || !publicKey) return;
@@ -124,7 +141,7 @@ export default function MarketPage() {
   const totalNo    = Number(market.totalNo);
   const totalPool  = totalYes + totalNo;
   const yesPct     = totalPool > 0 ? Math.round((totalYes / totalPool) * 100) : 50;
-  const expired    = isExpired(market.deadline);
+  const expired    = now / 1000 > market.deadline;
   const canResolve = !market.resolved && expired;
   const targetUsd  = market.targetPrice ? Number(market.targetPrice) / 1e6 : null;
   const currentUsd = currentPrice ? currentPrice / 1e6 : null;

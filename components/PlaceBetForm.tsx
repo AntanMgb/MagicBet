@@ -4,7 +4,15 @@ import { useState, useEffect } from 'react';
 import { useWallet, useAnchorWallet } from '@solana/wallet-adapter-react';
 import { Connection, SystemProgram } from '@solana/web3.js';
 import { BN } from '@coral-xyz/anchor';
-import { getProgram, getMarketPda, getBetPda, solToLamports, DEVNET_RPC, PROGRAM_ID, DELEGATION_PROGRAM } from '@/lib/program';
+import { getProgram, getMarketPda, getBetPda, solToLamports, DEVNET_RPC, PROGRAM_ID, DELEGATION_PROGRAM, MAGIC_ROUTER } from '@/lib/program';
+import {
+  delegateBufferPdaFromDelegatedAccountAndOwnerProgram,
+  delegationRecordPdaFromDelegatedAccount,
+  delegationMetadataPdaFromDelegatedAccount,
+} from '@magicblock-labs/ephemeral-rollups-sdk';
+import { PublicKey } from '@solana/web3.js';
+
+const ER_VALIDATOR = new PublicKey('MAS1Dt9qreoRMQ14YQuhg8UTZMMzDdKhmkZMECCzk57');
 import type { MarketAccount } from '@/types';
 
 type Step = 'idle' | 'init' | 'delegate' | 'bet' | 'done' | 'error';
@@ -104,6 +112,34 @@ export function PlaceBetForm({ market, onSuccess }: Props) {
         const result1 = await l1Conn.confirmTransaction({ signature: sig1, blockhash: bh1, lastValidBlockHeight: lbh1 }, 'confirmed');
         if (result1.value.err) throw new Error(`init_bet failed: ${JSON.stringify(result1.value.err)}`);
       }
+
+      // ── Step 2: delegate_bet on L1 → TEE ────────────────────────
+      setStep('delegate');
+      const bufferPda          = delegateBufferPdaFromDelegatedAccountAndOwnerProgram(betPda, PROGRAM_ID);
+      const delegationRecord   = delegationRecordPdaFromDelegatedAccount(betPda);
+      const delegationMetadata = delegationMetadataPdaFromDelegatedAccount(betPda);
+
+      const delTx = await (l1Prog.methods as any)
+        .delegateBet(new BN(marketId.toString()))
+        .accounts({
+          user:               publicKey,
+          bet:                betPda,
+          bufferPda,
+          delegationRecord,
+          delegationMetadata,
+          delegationProgram:  DELEGATION_PROGRAM,
+          ownerProgram:       PROGRAM_ID,
+          validator:          ER_VALIDATOR,
+          systemProgram:      SystemProgram.programId,
+        })
+        .transaction();
+
+      const { blockhash: bh2, lastValidBlockHeight: lbh2 } = await l1Conn.getLatestBlockhash('confirmed');
+      delTx.recentBlockhash = bh2;
+      delTx.feePayer = publicKey;
+      const signed2 = await anchorWallet.signTransaction(delTx);
+      const sig2 = await l1Conn.sendRawTransaction(signed2.serialize(), { skipPreflight: true });
+      await l1Conn.confirmTransaction({ signature: sig2, blockhash: bh2, lastValidBlockHeight: lbh2 }, 'confirmed');
 
       setStep('bet');
 

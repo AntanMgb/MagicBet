@@ -107,18 +107,19 @@ export default function MarketPage() {
 
       if (isInTee) {
         setMsg('⏳ Undelegating from TEE... approve in Phantom');
-        await undelegateBet(anchorWallet, betPda); // throws if user rejects or times out
-        setMsg('✓ Undelegated. Waiting for L1...');
-        // Poll until PROGRAM_ID owns the account
+        await undelegateBet(anchorWallet, betPda);
+        // Wait for L1 finalization with finalized commitment
+        setMsg('✓ Undelegated. Waiting for finalization (30s)...');
+        const finalizedConn = new Connection(DEVNET_RPC, 'finalized');
         let ready = false;
-        for (let i = 0; i < 40; i++) {
+        for (let i = 0; i < 60; i++) {
           await new Promise(r => setTimeout(r, 1000));
-          const info = await freshConn.getAccountInfo(betPda, 'confirmed');
+          const info = await finalizedConn.getAccountInfo(betPda);
           if (info && info.owner.equals(PROGRAM_ID)) { ready = true; break; }
         }
-        if (!ready) throw new Error('Bet not returned from TEE after 40s. Please try again.');
-        setMsg('✓ Ready. Claiming...');
-        await new Promise(r => setTimeout(r, 500));
+        if (!ready) throw new Error('Bet not returned from TEE. Please wait 1 minute and try again.');
+        setMsg('✓ Finalized. Claiming...');
+        await new Promise(r => setTimeout(r, 1000));
       }
 
       const program   = getProgram(anchorWallet, connection);

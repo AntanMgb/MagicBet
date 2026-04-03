@@ -105,7 +105,7 @@ export function isExpired(deadline: number): boolean {
  */
 export async function undelegateBet(wallet: AnchorWallet, betPda: PublicKey): Promise<void> {
   const erConn = new Connection(MAGIC_ROUTER, 'confirmed');
-  const l1Conn = new Connection(DEVNET_RPC,   'confirmed');
+  const l1Conn = new Connection(DEVNET_RPC,   'finalized');
 
   const ix = createCommitAndUndelegateInstruction(wallet.publicKey, [betPda]);
   const tx = new Transaction();
@@ -127,9 +127,8 @@ export async function undelegateBet(wallet: AnchorWallet, betPda: PublicKey): Pr
   // Poll L1 until ownership returns to our program (max 45s)
   for (let i = 0; i < 90; i++) {
     await new Promise(r => setTimeout(r, 500));
-    const info = await l1Conn.getAccountInfo(betPda, 'confirmed');
+    const info = await l1Conn.getAccountInfo(betPda);
     if (info && !info.owner.equals(DELEGATION_PROGRAM)) return;
-    // If account no longer exists on L1 either — something went wrong, stop
     if (i > 10 && info === null) throw new Error('Bet account not found on L1. It may have already been claimed.');
   }
   throw new Error('Undelegation timed out after 45s. The bet is still in the TEE. Please try again in a minute.');

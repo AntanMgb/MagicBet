@@ -125,10 +125,17 @@ export async function GET(req: Request) {
 
     const now = Math.floor(Date.now() / 1000);
 
-    // Deterministic marketId per template per time slot:
-    // Same template always gets same PDA within its timeframe window.
-    // If market already exists → createMarket fails silently → no duplicates.
-    // No need to fetch all markets first!
+    // Check creator balance — need at least 0.01 SOL per market
+    const balance = await connection.getBalance(payer.publicKey);
+    if (balance < 10_000_000) {
+      return NextResponse.json({
+        ok: false,
+        error: 'Creator wallet low on SOL',
+        balance: balance / 1e9,
+        address: payer.publicKey.toBase58(),
+      }, { status: 503 });
+    }
+
     const templates = bucket !== null
       ? SHORT_TERM.slice(bucket * 10, bucket * 10 + 10)
       : SHORT_TERM;
@@ -138,12 +145,10 @@ export async function GET(req: Request) {
     for (let i = 0; i < templates.length; i++) {
       const tmpl = templates[i];
       const templateIndex = bucket !== null ? bucket * 10 + i : i;
-      // Slot = which interval we're in (e.g. for 5min: changes every 5min)
       const slotSecs = tmpl.mins * 60;
       const slot = Math.floor(now / slotSecs);
-      // Unique per template + slot: won't collide across different templates or time windows
       const marketId = BigInt(templateIndex + 1) * BigInt(10 ** 12) + BigInt(slot);
-      const deadline = (slot + 1) * slotSecs; // end of current slot
+      const deadline = (slot + 1) * slotSecs;
 
       try {
         await (program.methods as any)
@@ -152,11 +157,11 @@ export async function GET(req: Request) {
           .rpc();
         created++;
       } catch {
-        // Market already exists for this slot — that's fine, skip silently
+        // Market already exists for this slot — skip silently
       }
     }
 
-    return NextResponse.json({ ok: true, created, total: templates.length });
+    return NextResponse.json({ ok: true, created, total: templates.length, balance: balance / 1e9 });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message }, { status: 500 });
   }

@@ -105,32 +105,50 @@ export function isExpired(deadline: number): boolean {
 /**
  * Commit + undelegate a bet PDA from the ER back to L1.
  * Uses GetCommitmentSignature to properly wait for the L1 commit to land.
+ * Times out after 60s to avoid hanging indefinitely.
  */
 export async function undelegateBet(wallet: AnchorWallet, betPda: PublicKey): Promise<void> {
+  const TIMEOUT_MS = 60_000;
+
+  const withTimeout = <T>(promise: Promise<T>, ms: number, label: string): Promise<T> => {
+    const timeout = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`Timeout: ${label} took longer than ${ms / 1000}s`)), ms)
+    );
+    return Promise.race([promise, timeout]);
+  };
+
   const erConn = new Connection(MAGIC_ROUTER, 'confirmed');
 
-  // Build commit+undelegate instruction targeting the ER
   const ix = createCommitAndUndelegateInstruction(wallet.publicKey, [betPda]);
   const tx = new Transaction();
   tx.add(ix);
-  const { blockhash, lastValidBlockHeight } = await erConn.getLatestBlockhash('confirmed');
+  const { blockhash, lastValidBlockHeight } = await withTimeout(
+    erConn.getLatestBlockhash('confirmed'), TIMEOUT_MS, 'getLatestBlockhash'
+  );
   tx.recentBlockhash = blockhash;
   tx.feePayer = wallet.publicKey;
   const signed = await wallet.signTransaction(tx);
-  const erSig = await erConn.sendRawTransaction(signed.serialize(), { skipPreflight: true });
+  const erSig = await withTimeout(
+    erConn.sendRawTransaction(signed.serialize(), { skipPreflight: true }), TIMEOUT_MS, 'sendRawTransaction'
+  );
   console.log('[UNDELEGATE] ER tx sent:', erSig);
 
-  // Confirm ER tx
-  await erConn.confirmTransaction({ signature: erSig, blockhash, lastValidBlockHeight }, 'confirmed');
+  await withTimeout(
+    erConn.confirmTransaction({ signature: erSig, blockhash, lastValidBlockHeight }, 'confirmed'),
+    TIMEOUT_MS, 'confirmTransaction ER'
+  );
   console.log('[UNDELEGATE] ER tx confirmed');
 
-  // Follow the commit chain: ER sig → scheduled commit sig → L1 commit sig
-  const l1CommitSig = await GetCommitmentSignature(erSig, erConn);
+  const l1CommitSig = await withTimeout(
+    GetCommitmentSignature(erSig, erConn), TIMEOUT_MS, 'GetCommitmentSignature'
+  );
   console.log('[UNDELEGATE] L1 commit sig:', l1CommitSig);
 
-  // Confirm on L1
   const l1Conn = new Connection(DEVNET_RPC, 'confirmed');
   const { blockhash: l1Bh, lastValidBlockHeight: l1Lbh } = await l1Conn.getLatestBlockhash('confirmed');
-  await l1Conn.confirmTransaction({ signature: l1CommitSig, blockhash: l1Bh, lastValidBlockHeight: l1Lbh }, 'confirmed');
+  await withTimeout(
+    l1Conn.confirmTransaction({ signature: l1CommitSig, blockhash: l1Bh, lastValidBlockHeight: l1Lbh }, 'confirmed'),
+    TIMEOUT_MS, 'confirmTransaction L1'
+  );
   console.log('[UNDELEGATE] L1 commit confirmed — bet owned by program again');
 }

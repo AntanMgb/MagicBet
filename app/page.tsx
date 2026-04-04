@@ -177,11 +177,17 @@ export default function HomePage() {
     return () => clearInterval(id);
   }, []);
 
-  // Per-timeframe counts (for badges) — deduplicated by question
+  // Per-timeframe counts (for badges) — same filter as displayed
   const tfCount = useMemo(() => {
+    const now = Math.floor(Date.now() / 1000);
+    const TF_MAX_TTL: Partial<Record<Timeframe, number>> = {
+      '5M':  5  * 60 + 30,
+      '15M': 15 * 60 + 60,
+      '1H':  60 * 60 + 120,
+      '4H':  4  * 3600 + 300,
+    };
     const seen = new Set<string>();
     const c: Record<string, number> = { ALL: 0 };
-    // Sort by deadline asc so we count the earliest per question
     [...markets]
       .filter(m => !m.resolved && !isExpired(m.deadline))
       .sort((a, b) => a.deadline - b.deadline)
@@ -189,6 +195,8 @@ export default function HomePage() {
         if (seen.has(m.question)) return;
         seen.add(m.question);
         const tf = detectTimeframe(m.question);
+        const maxTtl = TF_MAX_TTL[tf];
+        if (maxTtl && m.deadline - now > maxTtl) return;
         c[tf] = (c[tf] ?? 0) + 1;
         c.ALL++;
       });
@@ -209,8 +217,17 @@ export default function HomePage() {
   const totalVol = markets.reduce((a, m) => a + Number(m.totalYes) + Number(m.totalNo), 0);
 
   const displayed = useMemo(() => {
-    // For each unique question, keep only the market with the earliest deadline
-    // (avoids showing both current-slot and pre-created next-slot markets simultaneously)
+    const now = Math.floor(Date.now() / 1000);
+
+    // Max TTL per timeframe — hide pre-created next-slot markets until current slot expires
+    const TF_MAX_TTL: Partial<Record<Timeframe, number>> = {
+      '5M':  5  * 60 + 30,   // 5m 30s
+      '15M': 15 * 60 + 60,   // 15m 60s
+      '1H':  60 * 60 + 120,  // 1h 2m
+      '4H':  4  * 3600 + 300,// 4h 5m
+    };
+
+    // For each unique question keep only the market with the earliest deadline
     const earliest = new Map<string, MarketAccount>();
     for (const m of markets) {
       if (m.resolved || isExpired(m.deadline)) continue;
@@ -220,6 +237,9 @@ export default function HomePage() {
 
     return [...earliest.values()].filter((m) => {
       const tf = detectTimeframe(m.question);
+      // Hide next-slot markets that haven't "started" yet (TTL > max for this TF)
+      const maxTtl = TF_MAX_TTL[tf];
+      if (maxTtl && m.deadline - now > maxTtl) return false;
       if (timeframe !== 'ALL' && tf !== timeframe) return false;
       if (subtype   !== 'ALL' && detectSubtype(m.question) !== subtype) return false;
       if (asset     !== 'ALL' && detectAsset(m.question)   !== asset)   return false;

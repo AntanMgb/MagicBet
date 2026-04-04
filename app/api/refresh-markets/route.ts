@@ -141,6 +141,7 @@ export async function GET(req: Request) {
       : SHORT_TERM;
 
     let created = 0;
+    let closed = 0;
 
     for (let i = 0; i < templates.length; i++) {
       const tmpl = templates[i];
@@ -150,6 +151,23 @@ export async function GET(req: Request) {
       const marketId = BigInt(templateIndex + 1) * BigInt(10 ** 12) + BigInt(slot);
       const deadline = (slot + 1) * slotSecs;
 
+      // Close previous slot's market to reclaim rent (keeps wallet funded)
+      const prevMarketId = BigInt(templateIndex + 1) * BigInt(10 ** 12) + BigInt(slot - 1);
+      const prevPda = getMarketPda(prevMarketId);
+      try {
+        const prevInfo = await connection.getAccountInfo(prevPda);
+        if (prevInfo !== null) {
+          await (program.methods as any)
+            .closeMarket(new BN(prevMarketId.toString()))
+            .accounts({ creator: payer.publicKey, market: prevPda })
+            .rpc();
+          closed++;
+        }
+      } catch {
+        // Not closeable yet or already closed — skip
+      }
+
+      // Create current slot's market
       try {
         await (program.methods as any)
           .createMarket(new BN(marketId.toString()), tmpl.q, new BN(deadline), null, null, 2)
@@ -161,7 +179,7 @@ export async function GET(req: Request) {
       }
     }
 
-    return NextResponse.json({ ok: true, created, total: templates.length, balance: balance / 1e9 });
+    return NextResponse.json({ ok: true, created, closed, total: templates.length, balance: balance / 1e9 });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message }, { status: 500 });
   }

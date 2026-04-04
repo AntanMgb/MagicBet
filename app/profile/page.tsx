@@ -54,6 +54,26 @@ export default function ProfilePage() {
       const allMarkets = await fetchAllMarkets(connection);
       const marketMap = new Map(allMarkets.map(m => [m.marketId, m]));
 
+      // Fetch on-chain bet accounts to get real claimed status
+      const program = getProgram({ publicKey, signTransaction: async (t: any) => t, signAllTransactions: async (t: any) => t } as any, connection);
+      const onChainClaimed = new Set<string>();
+      await Promise.all(stored.map(async (b) => {
+        try {
+          const betPda = getBetPda(BigInt(b.marketId), publicKey);
+          const betAcc = await (program.account as any).bet.fetch(betPda);
+          if (betAcc?.claimed) onChainClaimed.add(b.marketId);
+        } catch {}
+      }));
+
+      // Sync localStorage claimed with on-chain truth
+      if (onChainClaimed.size > 0) {
+        setClaimedIds(prev => {
+          const next = new Set([...prev, ...onChainClaimed]);
+          try { localStorage.setItem('magicbet_claimed', JSON.stringify([...next])); } catch {}
+          return next;
+        });
+      }
+
       const enriched: BetWithMarket[] = stored.map(b => {
         const market = marketMap.get(b.marketId) ?? null;
         let status: BetWithMarket['status'] = 'unknown';

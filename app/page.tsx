@@ -177,15 +177,21 @@ export default function HomePage() {
     return () => clearInterval(id);
   }, []);
 
-  // Per-timeframe counts (for badges)
+  // Per-timeframe counts (for badges) — deduplicated by question
   const tfCount = useMemo(() => {
+    const seen = new Set<string>();
     const c: Record<string, number> = { ALL: 0 };
-    markets.forEach((m) => {
-      if (m.resolved || isExpired(m.deadline)) return;
-      const tf = detectTimeframe(m.question);
-      c[tf] = (c[tf] ?? 0) + 1;
-      c.ALL++;
-    });
+    // Sort by deadline asc so we count the earliest per question
+    [...markets]
+      .filter(m => !m.resolved && !isExpired(m.deadline))
+      .sort((a, b) => a.deadline - b.deadline)
+      .forEach((m) => {
+        if (seen.has(m.question)) return;
+        seen.add(m.question);
+        const tf = detectTimeframe(m.question);
+        c[tf] = (c[tf] ?? 0) + 1;
+        c.ALL++;
+      });
     return c;
   }, [markets]);
 
@@ -203,8 +209,16 @@ export default function HomePage() {
   const totalVol = markets.reduce((a, m) => a + Number(m.totalYes) + Number(m.totalNo), 0);
 
   const displayed = useMemo(() => {
-    return markets.filter((m) => {
-      if (m.resolved || isExpired(m.deadline)) return false;
+    // For each unique question, keep only the market with the earliest deadline
+    // (avoids showing both current-slot and pre-created next-slot markets simultaneously)
+    const earliest = new Map<string, MarketAccount>();
+    for (const m of markets) {
+      if (m.resolved || isExpired(m.deadline)) continue;
+      const prev = earliest.get(m.question);
+      if (!prev || m.deadline < prev.deadline) earliest.set(m.question, m);
+    }
+
+    return [...earliest.values()].filter((m) => {
       const tf = detectTimeframe(m.question);
       if (timeframe !== 'ALL' && tf !== timeframe) return false;
       if (subtype   !== 'ALL' && detectSubtype(m.question) !== subtype) return false;

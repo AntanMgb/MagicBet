@@ -177,6 +177,20 @@ export async function GET(req: Request) {
       } catch {
         // Market already exists for this slot — skip silently
       }
+
+      // Pre-create NEXT slot's market to eliminate the gap between slots
+      const nextSlot = slot + 1;
+      const nextMarketId = BigInt(templateIndex + 1) * BigInt(10 ** 12) + BigInt(nextSlot);
+      const nextDeadline = (nextSlot + 1) * slotSecs;
+      try {
+        await (program.methods as any)
+          .createMarket(new BN(nextMarketId.toString()), tmpl.q, new BN(nextDeadline), null, null, 2)
+          .accounts({ creator: payer.publicKey, market: getMarketPda(nextMarketId), systemProgram: SystemProgram.programId })
+          .rpc();
+        created++;
+      } catch {
+        // Already exists — skip
+      }
     }
 
     return NextResponse.json({ ok: true, created, closed, total: templates.length, balance: balance / 1e9 });

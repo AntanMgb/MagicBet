@@ -127,10 +127,8 @@ export async function GET() {
     const activeQuestions = new Set<string>();
     for (const { account } of allAccounts) {
       if (account.resolved || Number(account.deadline) <= now) continue;
-      const remaining = Number(account.deadline) - now;
-      // Find matching template to check expected duration
-      const tmpl = SHORT_TERM.find(t => t.q === account.question);
-      if (tmpl && remaining <= tmpl.mins * 60 * 1.15) {
+      // Any non-expired short-term market is considered active
+      if (SHORT_TERM.some(t => t.q === account.question)) {
         activeQuestions.add(account.question);
       }
     }

@@ -10,9 +10,12 @@ const WalletMultiButton = dynamic(
   { ssr: false }
 );
 import { SystemProgram } from '@solana/web3.js';
+import { Connection as SolConnection } from '@solana/web3.js';
 import { BN } from '@coral-xyz/anchor';
 import { PlaceBetForm } from '@/components/PlaceBetForm';
-import { fetchAllMarkets, getProgram, getMarketPda, lamportsToSol, formatDeadline, isExpired } from '@/lib/program';
+import { fetchAllMarkets, getProgram, getMarketPda, getBetPda, lamportsToSol, formatDeadline, isExpired, undelegateBet, DELEGATION_PROGRAM } from '@/lib/program';
+
+const DEVNET_RPC = 'https://api.devnet.solana.com';
 import { fetchPythPrice } from '@/lib/markets';
 import type { MarketAccount } from '@/types';
 
@@ -134,6 +137,18 @@ export default function MarketPage() {
     if (!market || !anchorWallet || !publicKey) return;
     setClaiming(true); setMsg('');
     try {
+      // Check if bet is still delegated to TEE — undelegate first if so
+      const freshConn = new SolConnection(DEVNET_RPC, 'confirmed');
+      const betPda = getBetPda(BigInt(market.marketId), publicKey);
+      const betInfo = await freshConn.getAccountInfo(betPda, 'confirmed');
+      const isInTee = betInfo !== null && betInfo.owner.equals(DELEGATION_PROGRAM);
+      if (isInTee) {
+        setMsg('⏳ Undelegating from TEE... approve in Phantom');
+        await undelegateBet(anchorWallet, betPda);
+        setMsg('✓ Undelegated. Claiming...');
+        await new Promise(r => setTimeout(r, 2000));
+      }
+
       const program   = getProgram(anchorWallet, connection);
       const marketPda = getMarketPda(BigInt(market.marketId));
       await (program.methods as any)

@@ -3,7 +3,6 @@ import { Connection, PublicKey, Transaction } from '@solana/web3.js';
 import { AnchorWallet } from '@solana/wallet-adapter-react';
 import {
   createCommitAndUndelegateInstruction,
-  GetCommitmentSignature,
 } from '@magicblock-labs/ephemeral-rollups-sdk';
 import idl from './magicbet-idl.json';
 import type { MarketAccount, BetAccount } from '../types';
@@ -104,47 +103,33 @@ export function isExpired(deadline: number): boolean {
 
 /**
  * Commit + undelegate a bet PDA from the ER back to L1.
- * Uses GetCommitmentSignature to properly wait for the L1 commit to land.
- * Times out after 60s to avoid hanging indefinitely.
+ * Sends commit+undelegate to ER, then polls L1 until the account owner
+ * changes from DELEGATION_PROGRAM back to our program (max 90s).
  */
 export async function undelegateBet(wallet: AnchorWallet, betPda: PublicKey): Promise<void> {
-  const TIMEOUT_MS = 60_000;
-
-  const withTimeout = <T>(promise: Promise<T>, ms: number, label: string): Promise<T> => {
-    const timeout = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error(`Timeout: ${label} took longer than ${ms / 1000}s`)), ms)
-    );
-    return Promise.race([promise, timeout]);
-  };
-
   const erConn = new Connection(MAGIC_ROUTER, 'confirmed');
+  const l1Conn = new Connection(DEVNET_RPC, 'confirmed');
 
   const ix = createCommitAndUndelegateInstruction(wallet.publicKey, [betPda]);
   const tx = new Transaction();
   tx.add(ix);
-  const { blockhash } = await withTimeout(
-    erConn.getLatestBlockhash('confirmed'), TIMEOUT_MS, 'getLatestBlockhash'
-  );
+  const { blockhash } = await erConn.getLatestBlockhash('confirmed');
   tx.recentBlockhash = blockhash;
   tx.feePayer = wallet.publicKey;
   const signed = await wallet.signTransaction(tx);
-  const erSig = await withTimeout(
-    erConn.sendRawTransaction(signed.serialize(), { skipPreflight: true }), TIMEOUT_MS, 'sendRawTransaction'
-  );
+  const erSig = await erConn.sendRawTransaction(signed.serialize(), { skipPreflight: true });
   console.log('[UNDELEGATE] ER tx sent:', erSig);
 
-  // Skip erConn.confirmTransaction — ER doesn't support standard WebSocket subscriptions.
-  // GetCommitmentSignature polls until the ER commits to L1, which is sufficient.
-  const l1CommitSig = await withTimeout(
-    GetCommitmentSignature(erSig, erConn), TIMEOUT_MS, 'GetCommitmentSignature'
-  );
-  console.log('[UNDELEGATE] L1 commit sig:', l1CommitSig);
-
-  const l1Conn = new Connection(DEVNET_RPC, 'confirmed');
-  const { blockhash: l1Bh, lastValidBlockHeight: l1Lbh } = await l1Conn.getLatestBlockhash('confirmed');
-  await withTimeout(
-    l1Conn.confirmTransaction({ signature: l1CommitSig, blockhash: l1Bh, lastValidBlockHeight: l1Lbh }, 'confirmed'),
-    TIMEOUT_MS, 'confirmTransaction L1'
-  );
-  console.log('[UNDELEGATE] L1 commit confirmed — bet owned by program again');
+  // Poll L1 until bet account owner changes from DELEGATION_PROGRAM → our program
+  const deadline = Date.now() + 90_000;
+  while (Date.now() < deadline) {
+    await new Promise(r => setTimeout(r, 2000));
+    const info = await l1Conn.getAccountInfo(betPda, 'confirmed');
+    if (info && !info.owner.equals(DELEGATION_PROGRAM)) {
+      console.log('[UNDELEGATE] Bet back on L1, owner:', info.owner.toBase58());
+      return;
+    }
+    console.log('[UNDELEGATE] Still waiting for L1 commit...');
+  }
+  throw new Error('Undelegation timeout: bet did not return to L1 within 90s');
 }

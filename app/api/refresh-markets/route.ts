@@ -76,6 +76,17 @@ const SHORT_TERM = [
   { q: 'Will LINK be Up (YES) or Down (NO) in the next 4 hours?',           mins: 240 },
   { q: 'Will JUP be Up (YES) or Down (NO) in the next 4 hours?',            mins: 240 },
   { q: 'Will TRX be Up (YES) or Down (NO) in the next 4 hours?',            mins: 240 },
+  // 24 hours (today)
+  { q: 'Will BTC be Up (YES) or Down (NO) today?',                           mins: 1440 },
+  { q: 'Will ETH be Up (YES) or Down (NO) today?',                           mins: 1440 },
+  { q: 'Will SOL be Up (YES) or Down (NO) today?',                           mins: 1440 },
+  { q: 'Will XRP be Up (YES) or Down (NO) today?',                           mins: 1440 },
+  { q: 'Will BNB be Up (YES) or Down (NO) today?',                           mins: 1440 },
+  { q: 'Will DOGE be Up (YES) or Down (NO) today?',                          mins: 1440 },
+  { q: 'Will BONK be Up (YES) or Down (NO) today?',                          mins: 1440 },
+  { q: 'Will WIF be Up (YES) or Down (NO) today?',                           mins: 1440 },
+  { q: 'Will PEPE be Up (YES) or Down (NO) today?',                          mins: 1440 },
+  { q: 'Will AVAX be Up (YES) or Down (NO) today?',                          mins: 1440 },
 ];
 
 function getMarketPda(marketId: bigint): PublicKey {

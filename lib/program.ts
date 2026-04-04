@@ -2,8 +2,25 @@ import { AnchorProvider, Program, BN } from '@coral-xyz/anchor';
 import { Connection, PublicKey, Transaction } from '@solana/web3.js';
 import { AnchorWallet } from '@solana/wallet-adapter-react';
 import {
-  createCommitAndUndelegateInstruction,
+  createCommitAndUndelegateInstruction as _createCommitAndUndelegate,
 } from '@magicblock-labs/ephemeral-rollups-sdk';
+import { TransactionInstruction } from '@solana/web3.js';
+
+const MAGIC_PROGRAM_ID  = new PublicKey('Magic11111111111111111111111111111111111111');
+const MAGIC_CONTEXT_ID  = new PublicKey('MagicContext1111111111111111111111111111111');
+
+// SDK passes accounts as isWritable:false — ER can't commit writable state.
+// Override with isWritable:true so the magic program can write committed data.
+function createCommitAndUndelegateInstruction(payer: PublicKey, accounts: PublicKey[]): TransactionInstruction {
+  const keys = [
+    { pubkey: payer,           isSigner: true,  isWritable: true },
+    { pubkey: MAGIC_CONTEXT_ID, isSigner: false, isWritable: true },
+    ...accounts.map(a => ({ pubkey: a, isSigner: false, isWritable: true })),
+  ];
+  const data = Buffer.alloc(4);
+  data.writeUInt32LE(2, 0);
+  return new TransactionInstruction({ keys, programId: MAGIC_PROGRAM_ID, data });
+}
 import idl from './magicbet-idl.json';
 import type { MarketAccount, BetAccount } from '../types';
 

@@ -1,7 +1,21 @@
 import { NextResponse } from 'next/server';
-import { Connection, Keypair, PublicKey, Transaction } from '@solana/web3.js';
+import { Connection, Keypair, PublicKey, Transaction, TransactionInstruction } from '@solana/web3.js';
 import { BN } from '@coral-xyz/anchor';
-import { createCommitAndUndelegateInstruction } from '@magicblock-labs/ephemeral-rollups-sdk';
+
+const MAGIC_PROGRAM_ID = new PublicKey('Magic11111111111111111111111111111111111111');
+const MAGIC_CONTEXT_ID = new PublicKey('MagicContext1111111111111111111111111111111');
+
+// Override SDK version: pass accounts as isWritable:true so ER can commit state
+function createCommitAndUndelegateInstruction(payer: PublicKey, accounts: PublicKey[]): TransactionInstruction {
+  const keys = [
+    { pubkey: payer,            isSigner: true,  isWritable: true },
+    { pubkey: MAGIC_CONTEXT_ID, isSigner: false, isWritable: true },
+    ...accounts.map(a => ({ pubkey: a, isSigner: false, isWritable: true })),
+  ];
+  const data = Buffer.alloc(4);
+  data.writeUInt32LE(2, 0);
+  return new TransactionInstruction({ keys, programId: MAGIC_PROGRAM_ID, data });
+}
 
 const MAGIC_ROUTER       = 'https://devnet-router.magicblock.app';
 const DEVNET_RPC         = 'https://api.devnet.solana.com';

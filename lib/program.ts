@@ -122,7 +122,7 @@ export async function undelegateBet(wallet: AnchorWallet, betPda: PublicKey): Pr
   const ix = createCommitAndUndelegateInstruction(wallet.publicKey, [betPda]);
   const tx = new Transaction();
   tx.add(ix);
-  const { blockhash, lastValidBlockHeight } = await withTimeout(
+  const { blockhash } = await withTimeout(
     erConn.getLatestBlockhash('confirmed'), TIMEOUT_MS, 'getLatestBlockhash'
   );
   tx.recentBlockhash = blockhash;
@@ -133,12 +133,8 @@ export async function undelegateBet(wallet: AnchorWallet, betPda: PublicKey): Pr
   );
   console.log('[UNDELEGATE] ER tx sent:', erSig);
 
-  await withTimeout(
-    erConn.confirmTransaction({ signature: erSig, blockhash, lastValidBlockHeight }, 'confirmed'),
-    TIMEOUT_MS, 'confirmTransaction ER'
-  );
-  console.log('[UNDELEGATE] ER tx confirmed');
-
+  // Skip erConn.confirmTransaction — ER doesn't support standard WebSocket subscriptions.
+  // GetCommitmentSignature polls until the ER commits to L1, which is sufficient.
   const l1CommitSig = await withTimeout(
     GetCommitmentSignature(erSig, erConn), TIMEOUT_MS, 'GetCommitmentSignature'
   );

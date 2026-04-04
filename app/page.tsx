@@ -103,13 +103,6 @@ const SUBTYPES: { key: Subtype; label: string }[] = [
 ];
 
 // Max allowed deadline (seconds from now) per short timeframe — filters out stale seeds
-const TF_MAX_SECS: Partial<Record<Timeframe, number>> = {
-  '5M':  10 * 60,
-  '15M': 30 * 60,
-  '1H':  130 * 60,
-  '4H':  9 * 3600,
-};
-
 // ─── Component ────────────────────────────────────────────────────────────────
 
 interface LocalBet {
@@ -148,11 +141,13 @@ export default function HomePage() {
     finally { setLoading(false); }
   };
 
-  // Auto-refresh short-term markets on load and every 60s
+  // Auto-refresh short-term markets on load and every 30s
+  // Call 7 buckets of 10 sequentially to avoid Vercel 10s timeout on Hobby plan
   useEffect(() => {
     const refresh = async () => {
-      await fetch('/api/refresh-markets').catch(() => {});
-      // Reload markets right after refresh so new short-term markets appear immediately
+      for (let b = 0; b < 7; b++) {
+        await fetch(`/api/refresh-markets?bucket=${b}`).catch(() => {});
+      }
       load();
     };
     refresh();

@@ -205,7 +205,8 @@ export default function HomePage() {
 
   const history = useMemo(() =>
     markets.filter((m) => m.resolved || isExpired(m.deadline))
-      .sort((a, b) => Number(b.deadline) - Number(a.deadline)),
+      .sort((a, b) => Number(b.deadline) - Number(a.deadline))
+      .slice(0, 200),
     [markets]);
 
   return (

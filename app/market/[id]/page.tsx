@@ -13,7 +13,7 @@ import { SystemProgram } from '@solana/web3.js';
 import { Connection as SolConnection } from '@solana/web3.js';
 import { BN } from '@coral-xyz/anchor';
 import { PlaceBetForm } from '@/components/PlaceBetForm';
-import { fetchAllMarkets, getProgram, getMarketPda, getBetPda, lamportsToSol, formatDeadline, isExpired, undelegateBet, DELEGATION_PROGRAM } from '@/lib/program';
+import { fetchAllMarkets, getProgram, getMarketPda, getBetPda, lamportsToSol, formatDeadline, isExpired, DELEGATION_PROGRAM } from '@/lib/program';
 
 const DEVNET_RPC = 'https://api.devnet.solana.com';
 import { fetchPythPrice } from '@/lib/markets';
@@ -148,14 +148,20 @@ export default function MarketPage() {
         return;
       }
 
-      // Якщо ставка ще в TEE — спочатку повернути на L1
+      // Якщо ставка ще в TEE — сервер повертає на L1 (без підпису юзера)
       const betInfo = await freshConn.getAccountInfo(betPda, 'confirmed');
       const isInTee = betInfo !== null && betInfo.owner.equals(DELEGATION_PROGRAM);
       if (isInTee) {
-        setMsg('⏳ Undelegating from TEE... approve in Phantom');
-        await undelegateBet(anchorWallet, betPda);
-        setMsg('✓ Undelegated. Claiming...');
-        await new Promise(r => setTimeout(r, 2000));
+        setMsg('⏳ Returning bet from TEE to L1...');
+        const res = await fetch('/api/undelegate-bet', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ marketId: market.marketId, userPubkey: publicKey.toBase58() }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? 'Undelegation failed');
+        setMsg('✓ Bet returned to L1. Claiming...');
+        await new Promise(r => setTimeout(r, 1000));
       }
 
       const program = getProgram(anchorWallet, connection);

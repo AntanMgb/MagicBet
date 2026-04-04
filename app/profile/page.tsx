@@ -6,7 +6,7 @@ import { useWallet, useConnection, useAnchorWallet } from '@solana/wallet-adapte
 import dynamic from 'next/dynamic';
 import { BN } from '@coral-xyz/anchor';
 import { SystemProgram } from '@solana/web3.js';
-import { fetchAllMarkets, getProgram, getMarketPda, getBetPda, isExpired, undelegateBet, DELEGATION_PROGRAM } from '@/lib/program';
+import { fetchAllMarkets, getProgram, getMarketPda, getBetPda, isExpired, DELEGATION_PROGRAM } from '@/lib/program';
 import { Connection } from '@solana/web3.js';
 const DEVNET_RPC = 'https://api.devnet.solana.com';
 import type { MarketAccount } from '@/types';
@@ -106,10 +106,16 @@ export default function ProfilePage() {
       const betInfo = await freshConn.getAccountInfo(betPda, 'confirmed');
       const isInTee = betInfo !== null && betInfo.owner.equals(DELEGATION_PROGRAM);
       if (isInTee) {
-        setMsg('⏳ Undelegating from TEE... approve in Phantom');
-        await undelegateBet(anchorWallet, betPda);
-        setMsg('✓ Undelegated. Claiming...');
-        await new Promise(r => setTimeout(r, 2000));
+        setMsg('⏳ Returning bet from TEE to L1...');
+        const res = await fetch('/api/undelegate-bet', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ marketId: bet.marketId, userPubkey: publicKey.toBase58() }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? 'Undelegation failed');
+        setMsg('✓ Bet returned to L1. Claiming...');
+        await new Promise(r => setTimeout(r, 1000));
       }
 
       const marketPda = getMarketPda(BigInt(bet.marketId));

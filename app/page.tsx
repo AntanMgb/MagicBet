@@ -25,7 +25,7 @@ export function detectTimeframe(q: string): Timeframe {
   if (s.includes('5 minutes'))  return '5M';
   if (s.includes('4 hours'))    return '4H';
   if (s.includes('1 hour'))     return '1H';
-  if (s.includes('april 4') || s.includes('today') || s.includes('daily')) return 'DAILY';
+  if (s.includes('april 4') || s.includes('today')) return 'DAILY';
   if (s.includes('end of 2026') || s.includes('by 2026') || s.includes('in 2026') || s.includes('by 2027') || s.includes('end of q')) return 'YEARLY';
   if (s.includes('april 30') || s.includes('this month') || s.includes('by end of april') || s.includes('in april')) return 'MONTHLY';
   if (s.includes('this week') || s.includes('april 10') || s.includes('april 5') || s.includes('april 6') || s.includes('april 7') || s.includes('april 8') || s.includes('april 9')) return 'WEEKLY';

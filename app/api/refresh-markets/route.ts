@@ -110,7 +110,6 @@ export const maxDuration = 60;
 
 export async function GET(req: Request) {
   try {
-    // bucket=N processes only templates [N*10 .. N*10+9] to fit within 10s on Hobby plan
     const url = new URL(req.url);
     const bucket = url.searchParams.has('bucket') ? parseInt(url.searchParams.get('bucket')!) : null;
 
@@ -124,38 +123,40 @@ export async function GET(req: Request) {
     const provider = new AnchorProvider(connection, wallet as any, { commitment: 'confirmed' });
     const program = new Program(idl as never, provider);
 
-    const allAccounts = await (program.account as any).market.all();
     const now = Math.floor(Date.now() / 1000);
 
-    const activeQuestions = new Set<string>();
-    for (const { account } of allAccounts) {
-      if (account.resolved || Number(account.deadline) <= now) continue;
-      if (SHORT_TERM.some(t => t.q === account.question)) {
-        activeQuestions.add(account.question);
-      }
-    }
-
-    let missing = SHORT_TERM.filter(t => !activeQuestions.has(t.q));
-    if (bucket !== null) missing = missing.slice(bucket * 10, bucket * 10 + 10);
+    // Deterministic marketId per template per time slot:
+    // Same template always gets same PDA within its timeframe window.
+    // If market already exists → createMarket fails silently → no duplicates.
+    // No need to fetch all markets first!
+    const templates = bucket !== null
+      ? SHORT_TERM.slice(bucket * 10, bucket * 10 + 10)
+      : SHORT_TERM;
 
     let created = 0;
-    const errors: string[] = [];
 
-    for (const tmpl of missing) {
+    for (let i = 0; i < templates.length; i++) {
+      const tmpl = templates[i];
+      const templateIndex = bucket !== null ? bucket * 10 + i : i;
+      // Slot = which interval we're in (e.g. for 5min: changes every 5min)
+      const slotSecs = tmpl.mins * 60;
+      const slot = Math.floor(now / slotSecs);
+      // Unique per template + slot: won't collide across different templates or time windows
+      const marketId = BigInt(templateIndex + 1) * BigInt(10 ** 12) + BigInt(slot);
+      const deadline = (slot + 1) * slotSecs; // end of current slot
+
       try {
-        const marketId = BigInt(now) * BigInt(100000) + BigInt(Math.floor(Math.random() * 99999));
-        const deadline = now + tmpl.mins * 60;
         await (program.methods as any)
           .createMarket(new BN(marketId.toString()), tmpl.q, new BN(deadline), null, null, 2)
           .accounts({ creator: payer.publicKey, market: getMarketPda(marketId), systemProgram: SystemProgram.programId })
           .rpc();
         created++;
-      } catch (e: any) {
-        errors.push(`${tmpl.q.slice(0, 40)}: ${e?.message?.slice(0, 60)}`);
+      } catch {
+        // Market already exists for this slot — that's fine, skip silently
       }
     }
 
-    return NextResponse.json({ created, skipped: SHORT_TERM.length - missing.length, errors });
+    return NextResponse.json({ ok: true, created, total: templates.length });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message }, { status: 500 });
   }

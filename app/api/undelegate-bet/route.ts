@@ -58,12 +58,14 @@ export async function POST(req: Request) {
     const payer  = loadKeypair();
     const erConn = new Connection(MAGIC_ROUTER, 'confirmed');
     const ix     = createCommitAndUndelegateInstruction(payer.publicKey, [betPda]);
-    const tx     = new Transaction();
+
+    // ER blockhash expires very fast — get it as late as possible (right before sign+send)
+    const tx = new Transaction();
     tx.add(ix);
-    const { blockhash } = await erConn.getLatestBlockhash('confirmed');
-    tx.recentBlockhash = blockhash;
     tx.feePayer = payer.publicKey;
-    tx.sign(payer);
+    const { blockhash } = await erConn.getLatestBlockhash('processed');
+    tx.recentBlockhash = blockhash;
+    tx.sign(payer);  // sign immediately after blockhash
 
     const sig = await erConn.sendRawTransaction(tx.serialize(), { skipPreflight: true });
     console.log('[SERVER UNDELEGATE] sent to ER:', sig);

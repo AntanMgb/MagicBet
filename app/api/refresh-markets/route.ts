@@ -29,6 +29,9 @@ const SHORT_TERM = [
   { q: 'Will SUI be Up (YES) or Down (NO) in the next 5 minutes?',          mins: 5 },
   { q: 'Will APT be Up (YES) or Down (NO) in the next 5 minutes?',          mins: 5 },
   { q: 'Will JUP be Up (YES) or Down (NO) in the next 5 minutes?',          mins: 5 },
+  { q: 'Will TRX be Up (YES) or Down (NO) in the next 5 minutes?',          mins: 5 },
+  { q: 'Will RENDER be Up (YES) or Down (NO) in the next 5 minutes?',       mins: 5 },
+  { q: 'Will INJ be Up (YES) or Down (NO) in the next 5 minutes?',          mins: 5 },
   // 15 minutes
   { q: 'Will BTC be Up (YES) or Down (NO) in the next 15 minutes?',         mins: 15 },
   { q: 'Will ETH be Up (YES) or Down (NO) in the next 15 minutes?',         mins: 15 },
@@ -44,6 +47,9 @@ const SHORT_TERM = [
   { q: 'Will AVAX be Up (YES) or Down (NO) in the next 15 minutes?',        mins: 15 },
   { q: 'Will JUP be Up (YES) or Down (NO) in the next 15 minutes?',         mins: 15 },
   { q: 'Will TRX be Up (YES) or Down (NO) in the next 15 minutes?',         mins: 15 },
+  { q: 'Will APT be Up (YES) or Down (NO) in the next 15 minutes?',         mins: 15 },
+  { q: 'Will RENDER be Up (YES) or Down (NO) in the next 15 minutes?',      mins: 15 },
+  { q: 'Will INJ be Up (YES) or Down (NO) in the next 15 minutes?',         mins: 15 },
   // 1 hour
   { q: 'Will BTC be Up (YES) or Down (NO) in the next 1 hour?',             mins: 60 },
   { q: 'Will ETH be Up (YES) or Down (NO) in the next 1 hour?',             mins: 60 },
@@ -76,6 +82,9 @@ const SHORT_TERM = [
   { q: 'Will LINK be Up (YES) or Down (NO) in the next 4 hours?',           mins: 240 },
   { q: 'Will JUP be Up (YES) or Down (NO) in the next 4 hours?',            mins: 240 },
   { q: 'Will TRX be Up (YES) or Down (NO) in the next 4 hours?',            mins: 240 },
+  { q: 'Will APT be Up (YES) or Down (NO) in the next 4 hours?',            mins: 240 },
+  { q: 'Will RENDER be Up (YES) or Down (NO) in the next 4 hours?',         mins: 240 },
+  { q: 'Will INJ be Up (YES) or Down (NO) in the next 4 hours?',            mins: 240 },
   // 24 hours (today)
   { q: 'Will BTC be Up (YES) or Down (NO) today?',                           mins: 1440 },
   { q: 'Will ETH be Up (YES) or Down (NO) today?',                           mins: 1440 },

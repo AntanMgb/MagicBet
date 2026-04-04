@@ -137,9 +137,18 @@ export default function MarketPage() {
     if (!market || !anchorWallet || !publicKey) return;
     setClaiming(true); setMsg('');
     try {
-      // Check if bet is still delegated to TEE — undelegate first if so
       const freshConn = new SolConnection(DEVNET_RPC, 'confirmed');
-      const betPda = getBetPda(BigInt(market.marketId), publicKey);
+      const marketPda = getMarketPda(BigInt(market.marketId));
+      const betPda    = getBetPda(BigInt(market.marketId), publicKey);
+
+      // Перевірити що market PDA ще існує на чейні
+      const marketInfo = await freshConn.getAccountInfo(marketPda, 'confirmed');
+      if (!marketInfo) {
+        setMsg('❌ Market account was closed on-chain. Contact admin to recover funds.');
+        return;
+      }
+
+      // Якщо ставка ще в TEE — спочатку повернути на L1
       const betInfo = await freshConn.getAccountInfo(betPda, 'confirmed');
       const isInTee = betInfo !== null && betInfo.owner.equals(DELEGATION_PROGRAM);
       if (isInTee) {
@@ -149,11 +158,10 @@ export default function MarketPage() {
         await new Promise(r => setTimeout(r, 2000));
       }
 
-      const program   = getProgram(anchorWallet, connection);
-      const marketPda = getMarketPda(BigInt(market.marketId));
+      const program = getProgram(anchorWallet, connection);
       await (program.methods as any)
         .claimWinnings(new BN(market.marketId))
-        .accounts({ user: publicKey, market: marketPda, systemProgram: SystemProgram.programId })
+        .accounts({ user: publicKey, market: marketPda, bet: betPda, systemProgram: SystemProgram.programId })
         .rpc();
       setMsg('💰 Winnings claimed!');
       await load();

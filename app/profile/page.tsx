@@ -112,11 +112,17 @@ export default function ProfilePage() {
         await new Promise(r => setTimeout(r, 2000));
       }
 
-      const program = getProgram(anchorWallet, connection);
       const marketPda = getMarketPda(BigInt(bet.marketId));
+      const marketInfo = await freshConn.getAccountInfo(marketPda, 'confirmed');
+      if (!marketInfo) {
+        setMsg('❌ Market was closed on-chain. Contact admin to recover funds.');
+        return;
+      }
+
+      const program = getProgram(anchorWallet, connection);
       await (program.methods as any)
         .claimWinnings(new BN(bet.marketId))
-        .accounts({ user: publicKey, market: marketPda, systemProgram: SystemProgram.programId })
+        .accounts({ user: publicKey, market: marketPda, bet: betPda, systemProgram: SystemProgram.programId })
         .rpc();
       setMsg(`💰 Claimed!`);
       setClaimedIds(prev => {

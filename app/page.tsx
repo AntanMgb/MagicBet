@@ -156,9 +156,23 @@ export default function HomePage() {
       load();
     };
     refresh();
-    const id = setInterval(refresh, 60_000);
+    const id = setInterval(refresh, 30_000);
     return () => clearInterval(id);
   }, []);
+
+  // When a short-term market expires, trigger refresh immediately to create a new one
+  useEffect(() => {
+    const shortTerm = markets.filter(m => !m.resolved && !isExpired(m.deadline) && m.deadline - Math.floor(Date.now() / 1000) < 4 * 3600);
+    if (shortTerm.length === 0) return;
+    const nextExpiry = Math.min(...shortTerm.map(m => m.deadline));
+    const msUntil = nextExpiry * 1000 - Date.now() + 2000;
+    if (msUntil <= 0 || msUntil > 4 * 3600 * 1000) return;
+    const t = setTimeout(async () => {
+      await fetch('/api/refresh-markets').catch(() => {});
+      load();
+    }, msUntil);
+    return () => clearTimeout(t);
+  }, [markets]);
 
   useEffect(() => {
     load();

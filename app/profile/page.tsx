@@ -36,6 +36,9 @@ export default function ProfilePage() {
   const [loading, setLoading] = useState(true);
   const [claimingAll, setClaimingAll] = useState(false);
   const [claimingId, setClaimingId] = useState<string | null>(null);
+  const [claimedIds, setClaimedIds] = useState<Set<string>>(() => {
+    try { return new Set(JSON.parse(localStorage.getItem('magicbet_claimed') || '[]')); } catch { return new Set(); }
+  });
   const [msg, setMsg] = useState('');
 
   const load = async () => {
@@ -82,6 +85,11 @@ export default function ProfilePage() {
         .accounts({ user: publicKey, market: marketPda, systemProgram: SystemProgram.programId })
         .rpc();
       setMsg(`💰 Claimed winnings for: ${bet.question.slice(0, 50)}...`);
+      setClaimedIds(prev => {
+        const next = new Set(prev).add(bet.marketId);
+        try { localStorage.setItem('magicbet_claimed', JSON.stringify([...next])); } catch {}
+        return next;
+      });
       await load();
     } catch (e: any) {
       setMsg(`❌ ${e?.message?.slice(0, 80) ?? 'Claim failed'}`);
@@ -258,18 +266,29 @@ export default function ProfilePage() {
                         </div>
                       )}
                       {b.status === 'won' && (
-                        <button
-                          onClick={() => claimWinnings(b)}
-                          disabled={claimingId === b.marketId}
-                          style={{
+                        claimedIds.has(b.marketId) ? (
+                          <div style={{
                             marginTop: 8, fontFamily: 'var(--font-fira)', fontSize: 10, letterSpacing: '0.08em',
-                            padding: '6px 14px', borderRadius: 999, border: 'none', cursor: 'pointer',
-                            background: 'linear-gradient(135deg,#f59e0b,#de3fbc)',
-                            color: '#fff', fontWeight: 600,
-                          }}
-                        >
-                          {claimingId === b.marketId ? '...' : '💰 CLAIM'}
-                        </button>
+                            padding: '6px 14px', borderRadius: 999,
+                            background: 'rgba(89,224,157,0.1)', border: '1px solid rgba(89,224,157,0.25)',
+                            color: '#59e09d', fontWeight: 600, textAlign: 'center',
+                          }}>
+                            ✓ CLAIMED
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => claimWinnings(b)}
+                            disabled={claimingId === b.marketId}
+                            style={{
+                              marginTop: 8, fontFamily: 'var(--font-fira)', fontSize: 10, letterSpacing: '0.08em',
+                              padding: '6px 14px', borderRadius: 999, border: 'none', cursor: 'pointer',
+                              background: 'linear-gradient(135deg,#f59e0b,#de3fbc)',
+                              color: '#fff', fontWeight: 600,
+                            }}
+                          >
+                            {claimingId === b.marketId ? '...' : '💰 CLAIM'}
+                          </button>
+                        )
                       )}
                     </div>
                   </div>

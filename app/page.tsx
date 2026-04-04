@@ -152,7 +152,9 @@ export default function HomePage() {
     };
     refresh();
     const id = setInterval(refresh, 30_000);
-    return () => clearInterval(id);
+    // Gradually clean up expired empty markets every 5 minutes
+    const cleanId = setInterval(() => fetch('/api/cleanup-markets').catch(() => {}), 5 * 60_000);
+    return () => { clearInterval(id); clearInterval(cleanId); };
   }, []);
 
   // When a short-term market expires, trigger refresh immediately to create a new one

@@ -2,81 +2,59 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useWallet, useConnection, useAnchorWallet } from '@solana/wallet-adapter-react';
+import { useWallet, useAnchorWallet } from '@solana/wallet-adapter-react';
 import dynamic from 'next/dynamic';
 import { BN } from '@coral-xyz/anchor';
 import { SystemProgram } from '@solana/web3.js';
-import { fetchAllMarkets, getProgram, getMarketPda, getBetPda, isExpired, DELEGATION_PROGRAM } from '@/lib/program';
+import {
+  fetchAllMarkets, fetchAllUserBets, getProgram, getMarketPda,
+  getBetRecordPda, getClaimRecordPda, lamportsToSol, isExpired,
+} from '@/lib/program';
 import { Connection } from '@solana/web3.js';
 const DEVNET_RPC = 'https://api.devnet.solana.com';
-import type { MarketAccount } from '@/types';
+import type { MarketAccount, BetAccount } from '@/types';
 
 const WalletMultiButton = dynamic(
   () => import('@solana/wallet-adapter-react-ui').then(m => m.WalletMultiButton),
   { ssr: false }
 );
 
-interface LocalBet {
-  marketId: string;
-  question: string;
-  outcome: 1 | 2;
-  amount: number;
-  timestamp: number;
-}
+type BetStatus = 'active' | 'pending_resolution' | 'won' | 'lost' | 'unknown';
 
-interface BetWithMarket extends LocalBet {
+interface BetWithMarket extends BetAccount {
   market: MarketAccount | null;
-  status: 'active' | 'pending_resolution' | 'won' | 'lost' | 'unknown';
+  status: BetStatus;
 }
 
 export default function ProfilePage() {
   const { publicKey } = useWallet();
-  const { connection } = useConnection();
   const anchorWallet = useAnchorWallet();
 
   const [bets, setBets] = useState<BetWithMarket[]>([]);
   const [loading, setLoading] = useState(true);
-  const [claimingAll, setClaimingAll] = useState(false);
-  const [claimingId, setClaimingId] = useState<string | null>(null);
-  const [claimedIds, setClaimedIds] = useState<Set<string>>(() => {
-    try { return new Set(JSON.parse(localStorage.getItem('magicbet_claimed') || '[]')); } catch { return new Set(); }
-  });
+  const [claimingKey, setClaimingKey] = useState<string | null>(null);
   const [msg, setMsg] = useState('');
 
   const load = async () => {
+    console.log('[profile] load called, publicKey:', publicKey?.toString() ?? 'null');
     if (!publicKey) { setLoading(false); return; }
     setLoading(true);
     try {
-      const key = `magicbet_bets_${publicKey.toString()}`;
-      const stored: LocalBet[] = JSON.parse(localStorage.getItem(key) || '[]');
-      if (stored.length === 0) { setBets([]); setLoading(false); return; }
+      const conn = new Connection(DEVNET_RPC, 'confirmed');
 
-      const allMarkets = await fetchAllMarkets(connection);
+      // Fetch bets and markets independently so one failure doesn't kill the other
+      const [rawBets, allMarkets] = await Promise.all([
+        fetchAllUserBets(conn, publicKey).catch((e) => { console.error('[profile] fetchAllUserBets:', e); return []; }),
+        fetchAllMarkets(conn).catch((e) => { console.error('[profile] fetchAllMarkets:', e); return []; }),
+      ]);
+
+      console.log('[profile] rawBets:', rawBets.length, 'markets:', allMarkets.length);
+
       const marketMap = new Map(allMarkets.map(m => [m.marketId, m]));
 
-      // Fetch on-chain bet accounts to get real claimed status
-      const program = getProgram({ publicKey, signTransaction: async (t: any) => t, signAllTransactions: async (t: any) => t } as any, connection);
-      const onChainClaimed = new Set<string>();
-      await Promise.all(stored.map(async (b) => {
-        try {
-          const betPda = getBetPda(BigInt(b.marketId), publicKey);
-          const betAcc = await (program.account as any).bet.fetch(betPda);
-          if (betAcc?.claimed) onChainClaimed.add(b.marketId);
-        } catch {}
-      }));
-
-      // Sync localStorage claimed with on-chain truth
-      if (onChainClaimed.size > 0) {
-        setClaimedIds(prev => {
-          const next = new Set([...prev, ...onChainClaimed]);
-          try { localStorage.setItem('magicbet_claimed', JSON.stringify([...next])); } catch {}
-          return next;
-        });
-      }
-
-      const enriched: BetWithMarket[] = stored.map(b => {
+      const enriched: BetWithMarket[] = rawBets.map(b => {
         const market = marketMap.get(b.marketId) ?? null;
-        let status: BetWithMarket['status'] = 'unknown';
+        let status: BetStatus = 'unknown';
         if (market) {
           if (market.resolved) {
             status = b.outcome === market.winningOutcome ? 'won' : 'lost';
@@ -89,8 +67,8 @@ export default function ProfilePage() {
         return { ...b, market, status };
       });
 
-      setBets(enriched.sort((a, b) => b.timestamp - a.timestamp));
-    } catch (e) { console.error(e); }
+      setBets(enriched.sort((a, b) => Number(b.betIndex ?? 0) - Number(a.betIndex ?? 0)));
+    } catch (e) { console.error('[profile] load error:', e); }
     finally { setLoading(false); }
   };
 
@@ -98,76 +76,47 @@ export default function ProfilePage() {
 
   const claimWinnings = async (bet: BetWithMarket) => {
     if (!anchorWallet || !publicKey || !bet.market) return;
-    setClaimingId(bet.marketId);
+    const key = `${bet.marketId}-${bet.betIndex}`;
+    setClaimingKey(key);
     try {
-      // Check if bet is delegated to TEE — undelegate first
-      const freshConn = new Connection(DEVNET_RPC, 'confirmed');
-      const betPda = getBetPda(BigInt(bet.marketId), publicKey);
-      const betInfo = await freshConn.getAccountInfo(betPda, 'confirmed');
-      const isInTee = betInfo !== null && betInfo.owner.equals(DELEGATION_PROGRAM);
-      if (isInTee) {
-        setMsg('⏳ Returning bet from TEE to L1...');
-        const res = await fetch('/api/undelegate-bet', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ marketId: bet.marketId, userPubkey: publicKey.toBase58() }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error ?? 'Undelegation failed');
-        setMsg('✓ Bet returned to L1. Claiming...');
-        await new Promise(r => setTimeout(r, 1000));
-      }
+      const freshConn     = new Connection(DEVNET_RPC, 'confirmed');
+      const marketId_n    = BigInt(bet.marketId);
+      const betIndex_n    = BigInt(bet.betIndex ?? 0);
+      const marketPda     = getMarketPda(marketId_n);
+      const betRecordPda  = getBetRecordPda(marketId_n, publicKey, betIndex_n);
+      const claimRecordPda = getClaimRecordPda(marketId_n, publicKey, betIndex_n);
 
-      const marketPda = getMarketPda(BigInt(bet.marketId));
       const marketInfo = await freshConn.getAccountInfo(marketPda, 'confirmed');
-      if (!marketInfo) {
-        setMsg('❌ Market was closed on-chain. Contact admin to recover funds.');
-        return;
-      }
+      if (!marketInfo) { setMsg('❌ Market was closed on-chain.'); return; }
 
-      const program = getProgram(anchorWallet, connection);
-      await (program.methods as any)
-        .claimWinnings(new BN(bet.marketId))
-        .accounts({ user: publicKey, market: marketPda, bet: betPda, systemProgram: SystemProgram.programId })
-        .rpc();
-      setMsg(`💰 Claimed!`);
-      setClaimedIds(prev => {
-        const next = new Set(prev).add(bet.marketId);
-        try { localStorage.setItem('magicbet_claimed', JSON.stringify([...next])); } catch {}
-        return next;
-      });
+      const program = getProgram(anchorWallet, freshConn);
+      const tx = await (program.methods as any)
+        .claimWinnings(new BN(bet.marketId), new BN(bet.betIndex ?? 0))
+        .accounts({ user: publicKey, market: marketPda, betRecord: betRecordPda, claimRecord: claimRecordPda, systemProgram: SystemProgram.programId })
+        .transaction();
+      const { blockhash, lastValidBlockHeight } = await freshConn.getLatestBlockhash('confirmed');
+      tx.recentBlockhash = blockhash;
+      tx.feePayer = publicKey;
+      const signed = await anchorWallet.signTransaction(tx);
+      const sig    = await freshConn.sendRawTransaction(signed.serialize(), { skipPreflight: false });
+      const result = await freshConn.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, 'confirmed');
+      if (result.value.err) throw new Error(JSON.stringify(result.value.err));
+      setMsg('💰 Claimed!');
       await load();
     } catch (e: any) {
       setMsg(`❌ ${e?.message?.slice(0, 120) ?? 'Claim failed'}`);
-    } finally { setClaimingId(null); }
-  };
-
-  const claimAll = async () => {
-    const winners = bets.filter(b => b.status === 'won');
-    if (!winners.length) return;
-    setClaimingAll(true);
-    setMsg('');
-    let claimed = 0;
-    for (const bet of winners) {
-      try {
-        await claimWinnings(bet);
-        claimed++;
-      } catch {}
-    }
-    setMsg(`💰 Claimed ${claimed} of ${winners.length} winning bets`);
-    setClaimingAll(false);
+    } finally { setClaimingKey(null); }
   };
 
   const wonBets    = bets.filter(b => b.status === 'won');
   const activeBets = bets.filter(b => b.status === 'active');
   const lostBets   = bets.filter(b => b.status === 'lost');
-  const totalWagered = bets.reduce((s, b) => s + b.amount, 0);
+  const totalWagered = bets.reduce((s, b) => s + lamportsToSol(b.amount), 0);
 
   return (
     <div style={{ minHeight: '100vh', background: '#050508' }}>
       <div className="aurora" />
 
-      {/* Nav */}
       <nav style={{ position: 'sticky', top: 0, zIndex: 50, background: 'rgba(5,5,8,0.88)', backdropFilter: 'blur(16px)', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
         <div style={{ maxWidth: 900, margin: '0 auto', padding: '0 20px', height: 56, display: 'flex', alignItems: 'center', gap: 16 }}>
           <Link href="/" style={{ fontFamily: 'var(--font-unbounded)', fontWeight: 900, fontSize: 16, textDecoration: 'none' }}>
@@ -184,22 +133,27 @@ export default function ProfilePage() {
 
       <div style={{ maxWidth: 900, margin: '0 auto', padding: '32px 20px' }}>
 
-        {/* Header */}
         <div style={{ marginBottom: 32 }}>
-          <div style={{ fontFamily: 'var(--font-fira)', fontSize: 10, letterSpacing: '0.25em', color: 'rgba(255,255,255,0.3)', marginBottom: 8 }}>MY PROFILE</div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+            <div style={{ fontFamily: 'var(--font-fira)', fontSize: 10, letterSpacing: '0.25em', color: 'rgba(255,255,255,0.3)' }}>MY PROFILE</div>
+            <button onClick={load} disabled={loading} style={{
+              fontFamily: 'var(--font-fira)', fontSize: 9, letterSpacing: '0.15em',
+              color: 'rgba(255,255,255,0.3)', background: 'none', border: 'none',
+              cursor: 'pointer', opacity: loading ? 0.4 : 1,
+            }}>↻ REFRESH</button>
+          </div>
           <h1 style={{ fontFamily: 'var(--font-unbounded)', fontWeight: 900, fontSize: 28, color: '#fff', margin: '0 0 20px' }}>
             <span className="grad-text">My Bets</span>
           </h1>
 
-          {/* Stats row */}
           {!loading && bets.length > 0 && (
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 20 }}>
               {[
-                { label: 'TOTAL BETS',   value: String(bets.length),          color: '#a78bfa' },
-                { label: 'ACTIVE',       value: String(activeBets.length),     color: '#59e09d' },
-                { label: 'WON',          value: String(wonBets.length),        color: '#f59e0b' },
-                { label: 'LOST',         value: String(lostBets.length),       color: '#de3fbc' },
-                { label: 'WAGERED',      value: `${totalWagered.toFixed(3)} SOL`, color: '#6633ff' },
+                { label: 'TOTAL BETS', value: String(bets.length),              color: '#a78bfa' },
+                { label: 'ACTIVE',     value: String(activeBets.length),         color: '#59e09d' },
+                { label: 'WON',        value: String(wonBets.length),            color: '#f59e0b' },
+                { label: 'LOST',       value: String(lostBets.length),           color: '#de3fbc' },
+                { label: 'WAGERED',    value: `${totalWagered.toFixed(3)} SOL`,  color: '#6633ff' },
               ].map(s => (
                 <div key={s.label} className="glass" style={{ borderRadius: 10, padding: '10px 16px', textAlign: 'center' }}>
                   <div style={{ fontFamily: 'var(--font-unbounded)', fontWeight: 700, fontSize: 16, color: s.color }}>{s.value}</div>
@@ -208,22 +162,8 @@ export default function ProfilePage() {
               ))}
             </div>
           )}
-
-          {/* Claim All button */}
-          {wonBets.length > 0 && (
-            <button onClick={claimAll} disabled={claimingAll} style={{
-              fontFamily: 'var(--font-fira)', fontSize: 12, letterSpacing: '0.1em',
-              padding: '10px 28px', borderRadius: 999, border: 'none', cursor: 'pointer',
-              background: 'linear-gradient(135deg,#f59e0b,#de3fbc)',
-              color: '#fff', fontWeight: 600,
-              boxShadow: '0 0 24px rgba(245,158,11,0.3)',
-            }}>
-              {claimingAll ? 'CLAIMING...' : `💰 CLAIM ALL WINNINGS (${wonBets.length})`}
-            </button>
-          )}
         </div>
 
-        {/* Status message */}
         {msg && (
           <div style={{
             borderRadius: 10, padding: '12px 16px', marginBottom: 16,
@@ -234,7 +174,6 @@ export default function ProfilePage() {
           }}>{msg}</div>
         )}
 
-        {/* Not connected */}
         {!publicKey && (
           <div style={{ textAlign: 'center', padding: '80px 0' }}>
             <div style={{ fontSize: 48, marginBottom: 16 }}>🔒</div>
@@ -242,14 +181,12 @@ export default function ProfilePage() {
           </div>
         )}
 
-        {/* Loading */}
         {publicKey && loading && (
           <div style={{ textAlign: 'center', padding: '60px 0', fontFamily: 'var(--font-fira)', fontSize: 11, letterSpacing: '0.2em', color: 'rgba(255,255,255,0.3)' }}>
             LOADING...
           </div>
         )}
 
-        {/* Empty */}
         {publicKey && !loading && bets.length === 0 && (
           <div style={{ textAlign: 'center', padding: '80px 0' }}>
             <div style={{ fontSize: 48, marginBottom: 16 }}>🎯</div>
@@ -258,26 +195,26 @@ export default function ProfilePage() {
           </div>
         )}
 
-        {/* Bet list */}
         {!loading && bets.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {bets.map((b) => {
-              const STATUS_META: Record<BetWithMarket['status'], { label: string; color: string; bg: string }> = {
-                active:              { label: '● ACTIVE',    color: '#59e09d', bg: 'rgba(89,224,157,0.08)' },
-                pending_resolution:  { label: '⏳ RESOLVING', color: '#f59e0b', bg: 'rgba(245,158,11,0.08)' },
-                won:                 { label: '🏆 WON',      color: '#f59e0b', bg: 'rgba(245,158,11,0.1)'  },
-                lost:                { label: '✕ LOST',      color: 'rgba(255,255,255,0.2)', bg: 'rgba(255,255,255,0.03)' },
-                unknown:             { label: '? UNKNOWN',   color: 'rgba(255,255,255,0.2)', bg: 'transparent' },
+              const STATUS_META: Record<BetStatus, { label: string; color: string; bg: string }> = {
+                active:             { label: '● ACTIVE',    color: '#59e09d', bg: 'rgba(89,224,157,0.08)' },
+                pending_resolution: { label: '⏳ RESOLVING', color: '#f59e0b', bg: 'rgba(245,158,11,0.08)' },
+                won:                { label: '🏆 WON',      color: '#f59e0b', bg: 'rgba(245,158,11,0.1)'  },
+                lost:               { label: '✕ LOST',      color: 'rgba(255,255,255,0.2)', bg: 'rgba(255,255,255,0.03)' },
+                unknown:            { label: '? UNKNOWN',   color: 'rgba(255,255,255,0.2)', bg: 'transparent' },
               };
-              const meta = STATUS_META[b.status];
-              const pool = b.market ? Number(b.market.totalYes) + Number(b.market.totalNo) : 0;
-              const winSide = b.market?.resolved ? (b.outcome === 1 ? Number(b.market.totalYes) : Number(b.market.totalNo)) : 0;
-              const payout = winSide > 0 ? (b.amount * 1e9 / winSide) * (pool) / 1e9 : 0;
+              const meta       = STATUS_META[b.status];
+              const pool       = b.market ? Number(b.market.totalYes) + Number(b.market.totalNo) : 0;
+              const winSide    = b.market?.resolved ? (b.outcome === 1 ? Number(b.market.totalYes) : Number(b.market.totalNo)) : 0;
+              const betLamports = Number(b.amount);
+              const payout     = winSide > 0 ? (betLamports / winSide) * pool / 1e9 : 0;
+              const claimKey   = `${b.marketId}-${b.betIndex}`;
 
               return (
-                <div key={b.marketId} className="glass" style={{ borderRadius: 14, padding: '16px 20px', background: meta.bg, border: `1px solid ${meta.color}20` }}>
+                <div key={claimKey} className="glass" style={{ borderRadius: 14, padding: '16px 20px', background: meta.bg, border: `1px solid ${meta.color}20` }}>
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
-                    {/* Outcome badge */}
                     <div style={{
                       width: 44, height: 44, borderRadius: 10, flexShrink: 0,
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -289,52 +226,43 @@ export default function ProfilePage() {
                       {b.outcome === 1 ? 'YES' : 'NO'}
                     </div>
 
-                    {/* Info */}
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <Link href={`/market/${b.marketId}`} style={{ textDecoration: 'none' }}>
                         <div style={{ fontFamily: 'var(--font-lexend)', fontSize: 13, color: 'rgba(255,255,255,0.85)', marginBottom: 6, lineHeight: 1.4 }}>
-                          {b.question}
+                          {b.market?.question ?? `Market ${b.marketId}`}
                         </div>
                       </Link>
                       <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
                         <span style={{ fontFamily: 'var(--font-fira)', fontSize: 9, letterSpacing: '0.1em', color: meta.color }}>{meta.label}</span>
                         <span style={{ fontFamily: 'var(--font-fira)', fontSize: 9, color: 'rgba(255,255,255,0.25)' }}>🔒 IN TEE</span>
-                        <span style={{ fontFamily: 'var(--font-fira)', fontSize: 9, color: 'rgba(255,255,255,0.2)' }}>{new Date(b.timestamp).toLocaleString()}</span>
+                        {b.betIndex !== undefined && (
+                          <span style={{ fontFamily: 'var(--font-fira)', fontSize: 9, color: 'rgba(255,255,255,0.2)' }}>BET #{b.betIndex + 1}</span>
+                        )}
                       </div>
                     </div>
 
-                    {/* Amount + claim */}
                     <div style={{ flexShrink: 0, textAlign: 'right' }}>
-                      <div style={{ fontFamily: 'var(--font-unbounded)', fontWeight: 800, fontSize: 15, color: '#fff' }}>{b.amount} SOL</div>
+                      <div style={{ fontFamily: 'var(--font-unbounded)', fontWeight: 800, fontSize: 15, color: '#fff' }}>
+                        {lamportsToSol(b.amount).toFixed(3)} SOL
+                      </div>
                       {b.status === 'won' && payout > 0 && (
                         <div style={{ fontFamily: 'var(--font-fira)', fontSize: 9, color: '#f59e0b', marginTop: 2 }}>
                           ~{payout.toFixed(3)} SOL payout
                         </div>
                       )}
                       {b.status === 'won' && (
-                        claimedIds.has(b.marketId) ? (
-                          <div style={{
+                        <button
+                          onClick={() => claimWinnings(b)}
+                          disabled={claimingKey === claimKey}
+                          style={{
                             marginTop: 8, fontFamily: 'var(--font-fira)', fontSize: 10, letterSpacing: '0.08em',
-                            padding: '6px 14px', borderRadius: 999,
-                            background: 'rgba(89,224,157,0.1)', border: '1px solid rgba(89,224,157,0.25)',
-                            color: '#59e09d', fontWeight: 600, textAlign: 'center',
-                          }}>
-                            ✓ CLAIMED
-                          </div>
-                        ) : (
-                          <button
-                            onClick={() => claimWinnings(b)}
-                            disabled={claimingId === b.marketId}
-                            style={{
-                              marginTop: 8, fontFamily: 'var(--font-fira)', fontSize: 10, letterSpacing: '0.08em',
-                              padding: '6px 14px', borderRadius: 999, border: 'none', cursor: 'pointer',
-                              background: 'linear-gradient(135deg,#f59e0b,#de3fbc)',
-                              color: '#fff', fontWeight: 600,
-                            }}
-                          >
-                            {claimingId === b.marketId ? '...' : '💰 CLAIM'}
-                          </button>
-                        )
+                            padding: '6px 14px', borderRadius: 999, border: 'none', cursor: 'pointer',
+                            background: 'linear-gradient(135deg,#f59e0b,#de3fbc)',
+                            color: '#fff', fontWeight: 600,
+                          }}
+                        >
+                          {claimingKey === claimKey ? '...' : '💰 CLAIM'}
+                        </button>
                       )}
                     </div>
                   </div>

@@ -12,7 +12,6 @@ function loadKeypair(): Keypair {
 const DEVNET_RPC = 'https://api.devnet.solana.com';
 const PROGRAM_ID = new PublicKey('4TcWHMB16WRQhG6ccTHdXUZdHthaQRXLWrhLdxbn825A');
 
-// Coin name → CoinGecko ID
 const COIN_ID: Record<string, string> = {
   btc: 'bitcoin', bitcoin: 'bitcoin',
   eth: 'ethereum', ethereum: 'ethereum',
@@ -41,20 +40,37 @@ function detectCoin(question: string): string | null {
   return null;
 }
 
-/** Returns positive (price went up) or negative (price went down) change */
-async function getPriceDirection(coinId: string): Promise<number> {
-  const url = `https://api.coingecko.com/api/v3/coins/${coinId}?localization=false&tickers=false&community_data=false&developer_data=false`;
-  const res = await fetch(url, { headers: { 'Accept': 'application/json' }, next: { revalidate: 0 } } as any);
-  if (!res.ok) {
-    // Rate limited or error — use pseudo-random based on current minute parity
-    console.warn(`[auto-resolve] CoinGecko ${res.status} for ${coinId}, using time-based fallback`);
-    return (Math.floor(Date.now() / 60000) % 2 === 0) ? 1 : -1;
-  }
-  const data = await res.json();
-  // Use 1h change for short-term markets, 24h as fallback
-  return data.market_data?.price_change_percentage_1h_in_currency?.usd
-    ?? data.market_data?.price_change_percentage_24h
-    ?? 0;
+/** Parse a dollar target from question: "$75k", "$75,000", "$1,500" */
+function parseTargetPrice(question: string): number | null {
+  const match = question.match(/\$([\d,]+\.?\d*)\s*(k|K)?/);
+  if (!match) return null;
+  let num = parseFloat(match[1].replace(/,/g, ''));
+  if (match[2]) num *= 1000;
+  return num;
+}
+
+/** Returns current price in USD from CoinGecko */
+async function getCurrentPrice(coinId: string): Promise<number | null> {
+  try {
+    const url = `https://api.coingecko.com/api/v3/simple/price?ids=${coinId}&vs_currencies=usd`;
+    const res = await fetch(url, { headers: { 'Accept': 'application/json' }, next: { revalidate: 0 } } as any);
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data[coinId]?.usd ?? null;
+  } catch { return null; }
+}
+
+/** Returns 1h price change % */
+async function getPriceChange1h(coinId: string): Promise<number> {
+  try {
+    const url = `https://api.coingecko.com/api/v3/coins/${coinId}?localization=false&tickers=false&community_data=false&developer_data=false`;
+    const res = await fetch(url, { headers: { 'Accept': 'application/json' }, next: { revalidate: 0 } } as any);
+    if (!res.ok) return (Math.floor(Date.now() / 60000) % 2 === 0) ? 1 : -1;
+    const data = await res.json();
+    return data.market_data?.price_change_percentage_1h_in_currency?.usd
+      ?? data.market_data?.price_change_percentage_24h
+      ?? 0;
+  } catch { return 0; }
 }
 
 function getMarketPda(marketId: bigint): PublicKey {
@@ -81,7 +97,6 @@ export async function POST(req: Request) {
     const program = new Program(idl as never, provider);
     const marketPda = getMarketPda(BigInt(marketId));
 
-    // Fetch market from chain
     const marketAccount = await (program.account as any).market.fetch(marketPda);
     if (marketAccount.resolved) return NextResponse.json({ ok: true, already: true });
 
@@ -90,19 +105,30 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Market not expired yet' }, { status: 400 });
     }
 
+    const question = marketAccount.question as string;
+    const coinId = detectCoin(question);
+    if (!coinId) return NextResponse.json({ error: 'Cannot detect coin' }, { status: 400 });
+
     let outcome: number;
 
-    if (marketAccount.marketType === 2) {
-      // Manual/UP-DOWN market: determine from price direction
-      const coinId = detectCoin(marketAccount.question);
-      if (!coinId) return NextResponse.json({ error: 'Cannot detect coin' }, { status: 400 });
+    // Check if this is a price-target market ("hit $X", "above $X", "reach $X", "below $X")
+    const targetPrice = parseTargetPrice(question);
+    const isAboveTarget = /hit|above|reach|exceed|surpass|over/i.test(question);
+    const isBelowTarget = /below|dip|drop|under|fall/i.test(question) && !isAboveTarget;
 
-      const change = await getPriceDirection(coinId);
-      outcome = change >= 0 ? 1 : 2; // 1=YES(Up), 2=NO(Down)
+    if (targetPrice !== null && (isAboveTarget || isBelowTarget)) {
+      const currentPrice = await getCurrentPrice(coinId);
+      if (currentPrice === null) {
+        return NextResponse.json({ error: 'Cannot fetch current price' }, { status: 500 });
+      }
+      if (isAboveTarget) {
+        outcome = currentPrice >= targetPrice ? 1 : 2; // YES if price >= target
+      } else {
+        outcome = currentPrice <= targetPrice ? 1 : 2; // YES if price <= target
+      }
     } else {
-      // Price market: compare targetPrice vs currentPrice from CoinGecko
-      const coinId = detectCoin(marketAccount.question) ?? 'bitcoin';
-      const change = await getPriceDirection(coinId);
+      // Up/Down market — use price direction
+      const change = await getPriceChange1h(coinId);
       outcome = change >= 0 ? 1 : 2;
     }
 
@@ -111,7 +137,7 @@ export async function POST(req: Request) {
       .accounts({ resolver: payer.publicKey, market: marketPda, systemProgram: SystemProgram.programId })
       .rpc();
 
-    return NextResponse.json({ ok: true, outcome, direction: outcome === 1 ? 'UP' : 'DOWN' });
+    return NextResponse.json({ ok: true, outcome, question, targetPrice, coinId });
   } catch (e: any) {
     const msg = e?.message ?? String(e);
     console.error('[auto-resolve] ERROR:', msg, e?.logs);

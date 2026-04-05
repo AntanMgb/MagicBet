@@ -35,6 +35,18 @@ export function getProgram(wallet: AnchorWallet, connection: Connection) {
   return new Program(idl as never, provider);
 }
 
+export function getBetCounterPda(marketId: bigint, user: PublicKey): PublicKey {
+  const [pda] = PublicKey.findProgramAddressSync(
+    [
+      Buffer.from('bet_counter'),
+      Buffer.from(new BN(marketId.toString()).toArrayLike(Buffer, 'le', 8)),
+      user.toBuffer(),
+    ],
+    PROGRAM_ID
+  );
+  return pda;
+}
+
 export function getMarketPda(marketId: bigint): PublicKey {
   const [pda] = PublicKey.findProgramAddressSync(
     [Buffer.from('market'), Buffer.from(new BN(marketId.toString()).toArrayLike(Buffer, 'le', 8))],
@@ -43,16 +55,82 @@ export function getMarketPda(marketId: bigint): PublicKey {
   return pda;
 }
 
-export function getBetPda(marketId: bigint, user: PublicKey): PublicKey {
+export function getBetRecordPda(marketId: bigint, user: PublicKey, betIndex: bigint): PublicKey {
+  const [pda] = PublicKey.findProgramAddressSync(
+    [
+      Buffer.from('bet_record'),
+      Buffer.from(new BN(marketId.toString()).toArrayLike(Buffer, 'le', 8)),
+      user.toBuffer(),
+      Buffer.from(new BN(betIndex.toString()).toArrayLike(Buffer, 'le', 8)),
+    ],
+    PROGRAM_ID
+  );
+  return pda;
+}
+
+export function getClaimRecordPda(marketId: bigint, user: PublicKey, betIndex: bigint): PublicKey {
+  const [pda] = PublicKey.findProgramAddressSync(
+    [
+      Buffer.from('claim'),
+      Buffer.from(new BN(marketId.toString()).toArrayLike(Buffer, 'le', 8)),
+      user.toBuffer(),
+      Buffer.from(new BN(betIndex.toString()).toArrayLike(Buffer, 'le', 8)),
+    ],
+    PROGRAM_ID
+  );
+  return pda;
+}
+
+export function getBetPda(marketId: bigint, user: PublicKey, betIndex: bigint): PublicKey {
   const [pda] = PublicKey.findProgramAddressSync(
     [
       Buffer.from('bet'),
       Buffer.from(new BN(marketId.toString()).toArrayLike(Buffer, 'le', 8)),
       user.toBuffer(),
+      Buffer.from(new BN(betIndex.toString()).toArrayLike(Buffer, 'le', 8)),
     ],
     PROGRAM_ID
   );
   return pda;
+}
+
+export async function fetchUserBetCount(connection: Connection, marketId: bigint, user: PublicKey): Promise<number> {
+  const provider = new AnchorProvider(connection, {} as AnchorWallet, { commitment: 'confirmed' });
+  const program = new Program(idl as never, provider);
+  const counterPda = getBetCounterPda(marketId, user);
+  try {
+    const counter = await (program.account as any).betCounter.fetch(counterPda);
+    return Number(counter.count);
+  } catch {
+    return 0;
+  }
+}
+
+export async function fetchUserBetRecords(
+  connection: Connection,
+  marketId: bigint,
+  user: PublicKey
+): Promise<BetAccount[]> {
+  const count = await fetchUserBetCount(connection, marketId, user);
+  const provider = new AnchorProvider(connection, {} as AnchorWallet, { commitment: 'confirmed' });
+  const program = new Program(idl as never, provider);
+  const results: BetAccount[] = [];
+  for (let i = 0; i < count; i++) {
+    const pda = getBetRecordPda(marketId, user, BigInt(i));
+    try {
+      const rec = await (program.account as any).betRecord.fetch(pda);
+      results.push({
+        user:      rec.user.toString(),
+        marketId:  rec.marketId.toString(),
+        outcome:   rec.outcome,
+        amount:    rec.amount.toString(),
+        claimed:   false,
+        publicKey: pda.toString(),
+        betIndex:  Number(rec.betIndex),
+      });
+    } catch {}
+  }
+  return results;
 }
 
 export async function fetchAllMarkets(connection: Connection): Promise<MarketAccount[]> {
@@ -82,11 +160,12 @@ export async function fetchAllMarkets(connection: Connection): Promise<MarketAcc
 export async function fetchUserBet(
   connection: Connection,
   marketId: bigint,
-  user: PublicKey
+  user: PublicKey,
+  betIndex: bigint = BigInt(0)
 ): Promise<BetAccount | null> {
   const provider = new AnchorProvider(connection, {} as AnchorWallet, { commitment: 'confirmed' });
   const program = new Program(idl as never, provider);
-  const betPda = getBetPda(marketId, user);
+  const betPda = getBetPda(marketId, user, betIndex);
   try {
     const bet = await (program.account as any).bet.fetch(betPda);
     return {
@@ -116,6 +195,64 @@ export function formatDeadline(timestamp: number): string {
 
 export function isExpired(deadline: number): boolean {
   return Date.now() / 1000 > deadline;
+}
+
+// BetRecord discriminator — pre-computed base58 of [144,217,102,109,200,164,66,178]
+const BET_RECORD_DISC_B58 = 'REDhHV8bmdT';
+
+/** Read a little-endian u64 from a Uint8Array at the given offset. Returns BigInt. */
+function readU64LE(data: Uint8Array, offset: number): bigint {
+  const view = new DataView(data.buffer, data.byteOffset + offset, 8);
+  return view.getBigUint64(0, true);
+}
+
+export async function fetchAllUserBets(connection: Connection, user: PublicKey): Promise<BetAccount[]> {
+  try {
+    // Raw getProgramAccounts — IDL has no field schema for BetRecord so Anchor can't decode it
+    const raw = await connection.getProgramAccounts(PROGRAM_ID, {
+      filters: [
+        { memcmp: { offset: 0, bytes: BET_RECORD_DISC_B58 } }, // discriminator
+        { memcmp: { offset: 8, bytes: user.toBase58() } },     // user pubkey at offset 8
+      ],
+    });
+
+    const results: BetAccount[] = [];
+    for (const { pubkey, account } of raw) {
+      try {
+        const d = account.data as Uint8Array;
+        // Two on-chain layouts:
+        // OLD 58-byte: 8(disc)+32(user)+8(market_id)+1(outcome)+8(amount)+1(claimed)
+        // NEW 66-byte: 8(disc)+32(user)+8(market_id)+8(bet_index)+1(outcome)+8(amount)+1(bump)
+        const marketId = readU64LE(d, 40).toString();
+        let outcome: 1 | 2;
+        let amount: string;
+        let betIndex = 0;
+        let claimed = false;
+
+        if (d.length >= 66) {
+          betIndex = Number(readU64LE(d, 48));
+          outcome  = d[56] as 1 | 2;
+          amount   = readU64LE(d, 57).toString();
+        } else {
+          outcome = d[48] as 1 | 2;
+          amount  = readU64LE(d, 49).toString();
+          claimed = d.length > 57 ? d[57] === 1 : false;
+          const mid = BigInt(marketId);
+          for (let bi = 0; bi < 20; bi++) {
+            if (getBetRecordPda(mid, user, BigInt(bi)).equals(pubkey)) { betIndex = bi; break; }
+          }
+        }
+
+        results.push({ user: user.toString(), marketId, outcome, amount, claimed, betIndex, publicKey: pubkey.toString() } as BetAccount);
+      } catch (e) {
+        console.warn('[fetchAllUserBets] skip account', pubkey.toString(), e);
+      }
+    }
+    return results;
+  } catch (e) {
+    console.error('[fetchAllUserBets] error:', e);
+    return [];
+  }
 }
 
 /**

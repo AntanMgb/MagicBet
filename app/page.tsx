@@ -15,7 +15,7 @@ import type { MarketAccount } from '@/types';
 
 type Timeframe = 'ALL'|'5M'|'15M'|'1H'|'4H'|'DAILY'|'WEEKLY'|'MONTHLY'|'YEARLY'|'PRE-MARKET'|'ETF';
 type Subtype   = 'ALL'|'UP/DOWN'|'ABOVE'|'BELOW'|'HIT PRICE'|'EVENT';
-type Asset     = 'ALL'|'BTC'|'ETH'|'SOL'|'XRP'|'BNB'|'BONK'|'WIF'|'DOGE';
+type Asset     = 'ALL'|'BTC'|'ETH'|'SOL'|'XRP'|'BNB'|'BONK'|'WIF'|'DOGE'|'PEPE'|'LINK'|'AVAX'|'SUI';
 
 export function detectTimeframe(q: string): Timeframe {
   const s = q.toLowerCase();
@@ -25,6 +25,7 @@ export function detectTimeframe(q: string): Timeframe {
   if (s.includes('5 minutes'))  return '5M';
   if (s.includes('4 hours'))    return '4H';
   if (s.includes('1 hour'))     return '1H';
+  if (s.includes('24 hours'))   return 'DAILY';
   if (s.includes('april 4') || s.includes('today')) return 'DAILY';
   if (s.includes('end of 2026') || s.includes('by 2026') || s.includes('in 2026') || s.includes('by 2027') || s.includes('end of q')) return 'YEARLY';
   if (s.includes('april 30') || s.includes('this month') || s.includes('by end of april') || s.includes('in april')) return 'MONTHLY';
@@ -51,6 +52,10 @@ export function detectAsset(q: string): Asset {
   if (s.includes('bonk')) return 'BONK';
   if (s.includes('wif') || s.includes('dogwifhat')) return 'WIF';
   if (s.includes('doge')) return 'DOGE';
+  if (s.includes('pepe')) return 'PEPE';
+  if (s.includes('link')) return 'LINK';
+  if (s.includes('avax') || s.includes('avalanche')) return 'AVAX';
+  if (s.includes('sui')) return 'SUI';
   return 'ALL';
 }
 
@@ -79,6 +84,10 @@ const COIN_LOGOS: Record<string, string> = {
   BONK: 'https://assets.coingecko.com/coins/images/28600/small/bonk.jpg',
   WIF:  'https://assets.coingecko.com/coins/images/33566/small/dogwifhat.jpg',
   DOGE: 'https://assets.coingecko.com/coins/images/5/small/dogecoin.png',
+  PEPE: 'https://assets.coingecko.com/coins/images/29850/small/pepe-token.jpeg',
+  LINK: 'https://assets.coingecko.com/coins/images/877/small/chainlink-new-logo.png',
+  AVAX: 'https://assets.coingecko.com/coins/images/12559/small/Avalanche_Circle_RedWhite_Trans.png',
+  SUI:  'https://assets.coingecko.com/coins/images/26375/small/sui_asset.jpeg',
 };
 
 const ASSETS: { key: Asset; color: string }[] = [
@@ -91,6 +100,10 @@ const ASSETS: { key: Asset; color: string }[] = [
   { key:'BONK', color:'#e8730a' },
   { key:'WIF',  color:'#d946ef' },
   { key:'DOGE', color:'#c2a633' },
+  { key:'PEPE', color:'#4ade80' },
+  { key:'LINK', color:'#375bd2' },
+  { key:'AVAX', color:'#e84142' },
+  { key:'SUI',  color:'#6fbcf0' },
 ];
 
 const SUBTYPES: { key: Subtype; label: string }[] = [
@@ -142,12 +155,19 @@ export default function HomePage() {
   };
 
   // Auto-refresh short-term markets on load and every 30s
-  // Call 7 buckets of 10 sequentially to avoid Vercel 10s timeout on Hobby plan
+  // Call 8 buckets of 10 sequentially to avoid Vercel 10s timeout on Hobby plan
+  // Also generate price-target markets (above/below %) per timeframe
   useEffect(() => {
     const refresh = async () => {
-      for (let b = 0; b < 7; b++) {
+      for (let b = 0; b < 8; b++) {
         await fetch(`/api/refresh-markets?bucket=${b}`).catch(() => {});
       }
+      // Price-target markets (one call per timeframe, processed in parallel)
+      await Promise.all(
+        ['5m', '15m', '1h', '4h', '1d'].map(tf =>
+          fetch(`/api/generate-markets?tf=${tf}`).catch(() => {})
+        )
+      );
       load();
     };
     refresh();
@@ -181,10 +201,11 @@ export default function HomePage() {
   const tfCount = useMemo(() => {
     const now = Math.floor(Date.now() / 1000);
     const TF_MAX_TTL: Partial<Record<Timeframe, number>> = {
-      '5M':  5  * 60 + 30,
-      '15M': 15 * 60 + 60,
-      '1H':  60 * 60 + 120,
-      '4H':  4  * 3600 + 300,
+      '5M':    5  * 60 + 30,
+      '15M':   15 * 60 + 60,
+      '1H':    60 * 60 + 120,
+      '4H':    4  * 3600 + 300,
+      'DAILY': 24 * 3600 + 600,
     };
     const seen = new Set<string>();
     const c: Record<string, number> = { ALL: 0 };
@@ -221,10 +242,11 @@ export default function HomePage() {
 
     // Max TTL per timeframe — hide pre-created next-slot markets until current slot expires
     const TF_MAX_TTL: Partial<Record<Timeframe, number>> = {
-      '5M':  5  * 60 + 30,   // 5m 30s
-      '15M': 15 * 60 + 60,   // 15m 60s
-      '1H':  60 * 60 + 120,  // 1h 2m
-      '4H':  4  * 3600 + 300,// 4h 5m
+      '5M':    5  * 60 + 30,    // 5m 30s
+      '15M':   15 * 60 + 60,    // 15m 60s
+      '1H':    60 * 60 + 120,   // 1h 2m
+      '4H':    4  * 3600 + 300, // 4h 5m
+      'DAILY': 24 * 3600 + 600, // 24h 10m
     };
 
     // For each unique question keep only the market with the earliest deadline

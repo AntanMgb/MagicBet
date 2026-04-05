@@ -1,183 +1,16 @@
 {
-  "accounts": [
-    {
-      "discriminator": [
-        147,
-        23,
-        35,
-        59,
-        15,
-        75,
-        155,
-        32
-      ],
-      "name": "Bet"
-    },
-    {
-      "discriminator": [
-        219,
-        190,
-        213,
-        55,
-        0,
-        227,
-        198,
-        154
-      ],
-      "name": "Market"
-    }
-  ],
   "address": "4TcWHMB16WRQhG6ccTHdXUZdHthaQRXLWrhLdxbn825A",
-  "errors": [
-    {
-      "code": 6000,
-      "msg": "Market deadline has not passed yet",
-      "name": "DeadlineNotPassed"
-    },
-    {
-      "code": 6001,
-      "msg": "Market deadline has already passed",
-      "name": "DeadlinePassed"
-    },
-    {
-      "code": 6002,
-      "msg": "Market is already resolved",
-      "name": "AlreadyResolved"
-    },
-    {
-      "code": 6003,
-      "msg": "Market is not resolved yet",
-      "name": "NotResolved"
-    },
-    {
-      "code": 6004,
-      "msg": "Invalid outcome: must be 1 (Yes) or 2 (No)",
-      "name": "InvalidOutcome"
-    },
-    {
-      "code": 6005,
-      "msg": "Bet amount must be greater than zero",
-      "name": "InvalidAmount"
-    },
-    {
-      "code": 6006,
-      "msg": "Winnings already claimed",
-      "name": "AlreadyClaimed"
-    },
-    {
-      "code": 6007,
-      "msg": "This bet did not win",
-      "name": "NotWinner"
-    },
-    {
-      "code": 6008,
-      "msg": "No winning bets on the winning side",
-      "name": "NoWinners"
-    },
-    {
-      "code": 6009,
-      "msg": "Pyth price feed is required for this market type",
-      "name": "MissingPythFeed"
-    },
-    {
-      "code": 6010,
-      "msg": "Target price is required for this market type",
-      "name": "MissingTargetPrice"
-    },
-    {
-      "code": 6011,
-      "msg": "Pyth price is stale",
-      "name": "StalePythPrice"
-    },
-    {
-      "code": 6012,
-      "msg": "Overflow in arithmetic",
-      "name": "ArithmeticOverflow"
-    },
-    {
-      "code": 6013,
-      "msg": "Unauthorized: only creator or admin can resolve manually",
-      "name": "Unauthorized"
-    },
-    {
-      "code": 6014,
-      "msg": "Bet outcome already set",
-      "name": "OutcomeAlreadySet"
-    },
-    {
-      "code": 6015,
-      "msg": "Bet not yet funded (call init_bet first)",
-      "name": "BetNotInitialized"
-    }
-  ],
+  "metadata": {
+    "name": "magicbet",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "Created with Anchor"
+  },
   "instructions": [
     {
-      "accounts": [
-        {
-          "name": "user",
-          "relations": [
-            "bet"
-          ],
-          "signer": true,
-          "writable": true
-        },
-        {
-          "name": "market",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  109,
-                  97,
-                  114,
-                  107,
-                  101,
-                  116
-                ]
-              },
-              {
-                "kind": "arg",
-                "path": "market_id"
-              }
-            ]
-          },
-          "writable": true
-        },
-        {
-          "name": "bet",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  98,
-                  101,
-                  116
-                ]
-              },
-              {
-                "kind": "arg",
-                "path": "market_id"
-              },
-              {
-                "kind": "account",
-                "path": "user"
-              }
-            ]
-          },
-          "writable": true
-        },
-        {
-          "address": "11111111111111111111111111111111",
-          "name": "system_program"
-        }
-      ],
-      "args": [
-        {
-          "name": "market_id",
-          "type": "u64"
-        }
+      "name": "claim_winnings",
+      "docs": [
+        "Claim proportional winnings after resolution"
       ],
       "discriminator": [
         161,
@@ -189,23 +22,18 @@
         242,
         221
       ],
-      "docs": [
-        "Claim proportional winnings after resolution"
-      ],
-      "name": "claim_winnings"
-    },
-    {
       "accounts": [
         {
-          "name": "creator",
-          "relations": [
-            "market"
-          ],
+          "name": "user",
+          "writable": true,
           "signer": true,
-          "writable": true
+          "relations": [
+            "bet_record"
+          ]
         },
         {
           "name": "market",
+          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -224,15 +52,96 @@
                 "path": "market_id"
               }
             ]
-          },
-          "writable": true
+          }
+        },
+        {
+          "name": "bet_record",
+          "docs": [
+            "Permanent L1 record created by init_bet — never delegated."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  101,
+                  116,
+                  95,
+                  114,
+                  101,
+                  99,
+                  111,
+                  114,
+                  100
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "market_id"
+              },
+              {
+                "kind": "account",
+                "path": "user"
+              },
+              {
+                "kind": "arg",
+                "path": "bet_index"
+              }
+            ]
+          }
+        },
+        {
+          "name": "claim_record",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  108,
+                  97,
+                  105,
+                  109
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "market_id"
+              },
+              {
+                "kind": "account",
+                "path": "user"
+              },
+              {
+                "kind": "arg",
+                "path": "bet_index"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
         {
           "name": "market_id",
           "type": "u64"
+        },
+        {
+          "name": "bet_index",
+          "type": "u64"
         }
+      ]
+    },
+    {
+      "name": "close_market",
+      "docs": [
+        "Close an expired market PDA and reclaim rent lamports to creator.",
+        "Only works after deadline has passed. All unclaimed funds are forfeited."
       ],
       "discriminator": [
         88,
@@ -244,21 +153,18 @@
         123,
         244
       ],
-      "docs": [
-        "Close an expired market PDA and reclaim rent lamports to creator.",
-        "Only works after deadline has passed. All unclaimed funds are forfeited."
-      ],
-      "name": "close_market"
-    },
-    {
       "accounts": [
         {
           "name": "creator",
+          "writable": true,
           "signer": true,
-          "writable": true
+          "relations": [
+            "market"
+          ]
         },
         {
           "name": "market",
+          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -277,12 +183,64 @@
                 "path": "market_id"
               }
             ]
-          },
-          "writable": true
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "market_id",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "create_market",
+      "docs": [
+        "Create a new prediction market (runs on Solana L1)",
+        "market_type: 0=price_above_target, 1=price_below_target, 2=manual"
+      ],
+      "discriminator": [
+        103,
+        226,
+        97,
+        235,
+        200,
+        188,
+        251,
+        254
+      ],
+      "accounts": [
+        {
+          "name": "creator",
+          "writable": true,
+          "signer": true
         },
         {
-          "address": "11111111111111111111111111111111",
-          "name": "system_program"
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "market_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
@@ -314,33 +272,51 @@
           "name": "market_type",
           "type": "u8"
         }
-      ],
-      "discriminator": [
-        103,
-        226,
-        97,
-        235,
-        200,
-        188,
-        251,
-        254
-      ],
-      "docs": [
-        "Create a new prediction market (runs on Solana L1)",
-        "market_type: 0=price_above_target, 1=price_below_target, 2=manual"
-      ],
-      "name": "create_market"
+      ]
     },
     {
+      "name": "delegate_bet",
+      "docs": [
+        "Step 2: Delegate the Bet PDA to the Private Ephemeral Rollup (TEE).",
+        "After this call the account is invisible on Solana L1."
+      ],
+      "discriminator": [
+        55,
+        176,
+        95,
+        121,
+        115,
+        103,
+        253,
+        251
+      ],
       "accounts": [
         {
           "name": "user",
-          "signer": true,
-          "writable": true
+          "writable": true,
+          "signer": true
         },
         {
           "name": "buffer_bet",
+          "writable": true,
           "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  102,
+                  102,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "bet"
+              }
+            ],
             "program": {
               "kind": "const",
               "value": [
@@ -377,34 +353,13 @@
                 0,
                 253
               ]
-            },
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  98,
-                  117,
-                  102,
-                  102,
-                  101,
-                  114
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "bet"
-              }
-            ]
-          },
-          "writable": true
+            }
+          }
         },
         {
           "name": "delegation_record_bet",
+          "writable": true,
           "pda": {
-            "program": {
-              "kind": "account",
-              "path": "delegation_program"
-            },
             "seeds": [
               {
                 "kind": "const",
@@ -425,17 +380,17 @@
                 "kind": "account",
                 "path": "bet"
               }
-            ]
-          },
-          "writable": true
-        },
-        {
-          "name": "delegation_metadata_bet",
-          "pda": {
+            ],
             "program": {
               "kind": "account",
               "path": "delegation_program"
-            },
+            }
+          }
+        },
+        {
+          "name": "delegation_metadata_bet",
+          "writable": true,
+          "pda": {
             "seeds": [
               {
                 "kind": "const",
@@ -465,12 +420,16 @@
                 "kind": "account",
                 "path": "bet"
               }
-            ]
-          },
-          "writable": true
+            ],
+            "program": {
+              "kind": "account",
+              "path": "delegation_program"
+            }
+          }
         },
         {
           "name": "bet",
+          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -488,59 +447,68 @@
               {
                 "kind": "account",
                 "path": "user"
+              },
+              {
+                "kind": "arg",
+                "path": "bet_index"
               }
             ]
-          },
-          "writable": true
+          }
         },
         {
           "name": "validator",
           "optional": true
         },
         {
-          "address": "11111111111111111111111111111111",
-          "name": "system_program"
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
         },
         {
-          "address": "DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh",
-          "name": "delegation_program"
+          "name": "delegation_program",
+          "address": "DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh"
         },
         {
-          "address": "4TcWHMB16WRQhG6ccTHdXUZdHthaQRXLWrhLdxbn825A",
-          "name": "owner_program"
+          "name": "owner_program",
+          "address": "4TcWHMB16WRQhG6ccTHdXUZdHthaQRXLWrhLdxbn825A"
         }
       ],
       "args": [
         {
           "name": "market_id",
           "type": "u64"
+        },
+        {
+          "name": "bet_index",
+          "type": "u64"
         }
-      ],
-      "discriminator": [
-        55,
-        176,
-        95,
-        121,
-        115,
-        103,
-        253,
-        251
-      ],
-      "docs": [
-        "Step 2: Delegate the Bet PDA to the Private Ephemeral Rollup (TEE).",
-        "After this call the account is invisible on Solana L1."
-      ],
-      "name": "delegate_bet"
+      ]
     },
     {
+      "name": "init_bet",
+      "docs": [
+        "Step 1: Initialize bet PDA on L1, lock SOL, update aggregate totals.",
+        "Outcome updates the public yes/no aggregate only — private outcome is",
+        "set separately in the TEE (Step 3) for full privacy."
+      ],
+      "discriminator": [
+        15,
+        172,
+        254,
+        252,
+        114,
+        198,
+        174,
+        255
+      ],
       "accounts": [
         {
           "name": "user",
-          "signer": true,
-          "writable": true
+          "writable": true,
+          "signer": true
         },
         {
           "name": "market",
+          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -559,11 +527,11 @@
                 "path": "market_id"
               }
             ]
-          },
-          "writable": true
+          }
         },
         {
           "name": "bet",
+          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -581,19 +549,99 @@
               {
                 "kind": "account",
                 "path": "user"
+              },
+              {
+                "kind": "arg",
+                "path": "bet_index"
               }
             ]
-          },
-          "writable": true
+          }
         },
         {
-          "address": "11111111111111111111111111111111",
-          "name": "system_program"
+          "name": "bet_record",
+          "docs": [
+            "Permanent L1 record — never delegated, survives TEE delegation unchanged."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  101,
+                  116,
+                  95,
+                  114,
+                  101,
+                  99,
+                  111,
+                  114,
+                  100
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "market_id"
+              },
+              {
+                "kind": "account",
+                "path": "user"
+              },
+              {
+                "kind": "arg",
+                "path": "bet_index"
+              }
+            ]
+          }
+        },
+        {
+          "name": "bet_counter",
+          "docs": [
+            "Tracks how many bets this user has placed on this market."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  101,
+                  116,
+                  95,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "market_id"
+              },
+              {
+                "kind": "account",
+                "path": "user"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
         {
           "name": "market_id",
+          "type": "u64"
+        },
+        {
+          "name": "bet_index",
           "type": "u64"
         },
         {
@@ -604,75 +652,13 @@
           "name": "outcome",
           "type": "u8"
         }
-      ],
-      "discriminator": [
-        15,
-        172,
-        254,
-        252,
-        114,
-        198,
-        174,
-        255
-      ],
-      "docs": [
-        "Step 1: Initialize bet PDA on L1, lock SOL, update aggregate totals.",
-        "Outcome updates the public yes/no aggregate only — private outcome is",
-        "set separately in the TEE (Step 3) for full privacy."
-      ],
-      "name": "init_bet"
+      ]
     },
     {
-      "accounts": [
-        {
-          "docs": [
-            "Fee payer for the ER tx — ephemeral keypair auto-signs in browser"
-          ],
-          "name": "payer",
-          "signer": true,
-          "writable": true
-        },
-        {
-          "docs": [
-            "The bettor — verified indirectly via PDA seeds (not required to sign;",
-            "TEE execution environment guarantees integrity)"
-          ],
-          "name": "user"
-        },
-        {
-          "name": "bet",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  98,
-                  101,
-                  116
-                ]
-              },
-              {
-                "kind": "arg",
-                "path": "market_id"
-              },
-              {
-                "kind": "account",
-                "path": "user"
-              }
-            ]
-          },
-          "writable": true
-        }
-      ],
-      "args": [
-        {
-          "name": "market_id",
-          "type": "u64"
-        },
-        {
-          "name": "outcome",
-          "type": "u8"
-        }
+      "name": "place_bet",
+      "docs": [
+        "Step 3: Set private outcome inside the ER/TEE via Magic Router.",
+        "No one can see the outcome until the bet is committed back to L1."
       ],
       "discriminator": [
         222,
@@ -684,13 +670,71 @@
         126,
         33
       ],
-      "docs": [
-        "Step 3: Set private outcome inside the ER/TEE via Magic Router.",
-        "No one can see the outcome until the bet is committed back to L1."
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "user"
+        },
+        {
+          "name": "bet",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "market_id"
+              },
+              {
+                "kind": "account",
+                "path": "user"
+              },
+              {
+                "kind": "arg",
+                "path": "bet_index"
+              }
+            ]
+          }
+        }
       ],
-      "name": "place_bet"
+      "args": [
+        {
+          "name": "market_id",
+          "type": "u64"
+        },
+        {
+          "name": "bet_index",
+          "type": "u64"
+        },
+        {
+          "name": "outcome",
+          "type": "u8"
+        }
+      ]
     },
     {
+      "name": "process_undelegation",
+      "discriminator": [
+        196,
+        28,
+        41,
+        206,
+        48,
+        37,
+        51,
+        167
+      ],
       "accounts": [
         {
           "name": "base_account",
@@ -714,28 +758,34 @@
             "vec": "bytes"
           }
         }
-      ],
-      "discriminator": [
-        196,
-        28,
-        41,
-        206,
-        48,
-        37,
-        51,
-        167
-      ],
-      "name": "process_undelegation"
+      ]
     },
     {
+      "name": "resolve_market",
+      "docs": [
+        "Resolve market after deadline.",
+        "Price markets: pass current_price from Pyth API (read off-chain).",
+        "Manual markets: pass manual_outcome (1=Yes, 2=No), only creator."
+      ],
+      "discriminator": [
+        155,
+        23,
+        80,
+        173,
+        46,
+        74,
+        23,
+        239
+      ],
       "accounts": [
         {
           "name": "resolver",
-          "signer": true,
-          "writable": true
+          "writable": true,
+          "signer": true
         },
         {
           "name": "market",
+          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -754,8 +804,7 @@
                 "path": "market_id"
               }
             ]
-          },
-          "writable": true
+          }
         }
       ],
       "args": [
@@ -775,36 +824,36 @@
             "option": "u8"
           }
         }
-      ],
-      "discriminator": [
-        155,
-        23,
-        80,
-        173,
-        46,
-        74,
-        23,
-        239
-      ],
-      "docs": [
-        "Resolve market after deadline.",
-        "Price markets: pass current_price from Pyth API (read off-chain).",
-        "Manual markets: pass manual_outcome (1=Yes, 2=No), only creator."
-      ],
-      "name": "resolve_market"
+      ]
     },
     {
+      "name": "withdraw_fees",
+      "docs": [
+        "Withdraw remaining SOL (losing bets) from a resolved market.",
+        "Only the market creator can call this."
+      ],
+      "discriminator": [
+        198,
+        212,
+        171,
+        109,
+        144,
+        215,
+        174,
+        89
+      ],
       "accounts": [
         {
           "name": "creator",
+          "writable": true,
+          "signer": true,
           "relations": [
             "market"
-          ],
-          "signer": true,
-          "writable": true
+          ]
         },
         {
           "name": "market",
+          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -823,12 +872,11 @@
                 "path": "market_id"
               }
             ]
-          },
-          "writable": true
+          }
         },
         {
-          "address": "11111111111111111111111111111111",
-          "name": "system_program"
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
@@ -836,34 +884,168 @@
           "name": "market_id",
           "type": "u64"
         }
-      ],
-      "discriminator": [
-        198,
-        212,
-        171,
-        109,
-        144,
-        215,
-        174,
-        89
-      ],
-      "docs": [
-        "Withdraw remaining SOL (losing bets) from a resolved market.",
-        "Only the market creator can call this."
-      ],
-      "name": "withdraw_fees"
+      ]
     }
   ],
-  "metadata": {
-    "description": "Created with Anchor",
-    "name": "magicbet",
-    "spec": "0.1.0",
-    "version": "0.1.0"
-  },
+  "accounts": [
+    {
+      "name": "Bet",
+      "discriminator": [
+        147,
+        23,
+        35,
+        59,
+        15,
+        75,
+        155,
+        32
+      ]
+    },
+    {
+      "name": "BetCounter",
+      "discriminator": [
+        182,
+        127,
+        136,
+        72,
+        100,
+        192,
+        236,
+        170
+      ]
+    },
+    {
+      "name": "BetRecord",
+      "discriminator": [
+        144,
+        217,
+        102,
+        109,
+        200,
+        164,
+        66,
+        178
+      ]
+    },
+    {
+      "name": "ClaimRecord",
+      "discriminator": [
+        57,
+        229,
+        0,
+        9,
+        65,
+        62,
+        96,
+        7
+      ]
+    },
+    {
+      "name": "Market",
+      "discriminator": [
+        219,
+        190,
+        213,
+        55,
+        0,
+        227,
+        198,
+        154
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "DeadlineNotPassed",
+      "msg": "Market deadline has not passed yet"
+    },
+    {
+      "code": 6001,
+      "name": "DeadlinePassed",
+      "msg": "Market deadline has already passed"
+    },
+    {
+      "code": 6002,
+      "name": "AlreadyResolved",
+      "msg": "Market is already resolved"
+    },
+    {
+      "code": 6003,
+      "name": "NotResolved",
+      "msg": "Market is not resolved yet"
+    },
+    {
+      "code": 6004,
+      "name": "InvalidOutcome",
+      "msg": "Invalid outcome: must be 1 (Yes) or 2 (No)"
+    },
+    {
+      "code": 6005,
+      "name": "InvalidAmount",
+      "msg": "Bet amount must be greater than zero"
+    },
+    {
+      "code": 6006,
+      "name": "AlreadyClaimed",
+      "msg": "Winnings already claimed"
+    },
+    {
+      "code": 6007,
+      "name": "NotWinner",
+      "msg": "This bet did not win"
+    },
+    {
+      "code": 6008,
+      "name": "NoWinners",
+      "msg": "No winning bets on the winning side"
+    },
+    {
+      "code": 6009,
+      "name": "MissingPythFeed",
+      "msg": "Pyth price feed is required for this market type"
+    },
+    {
+      "code": 6010,
+      "name": "MissingTargetPrice",
+      "msg": "Target price is required for this market type"
+    },
+    {
+      "code": 6011,
+      "name": "StalePythPrice",
+      "msg": "Pyth price is stale"
+    },
+    {
+      "code": 6012,
+      "name": "ArithmeticOverflow",
+      "msg": "Overflow in arithmetic"
+    },
+    {
+      "code": 6013,
+      "name": "Unauthorized",
+      "msg": "Unauthorized: only creator or admin can resolve manually"
+    },
+    {
+      "code": 6014,
+      "name": "OutcomeAlreadySet",
+      "msg": "Bet outcome already set"
+    },
+    {
+      "code": 6015,
+      "name": "BetNotInitialized",
+      "msg": "Bet not yet funded (call init_bet first)"
+    },
+    {
+      "code": 6016,
+      "name": "InvalidBetIndex",
+      "msg": "Bet index does not match current counter"
+    }
+  ],
   "types": [
     {
       "name": "Bet",
       "type": {
+        "kind": "struct",
         "fields": [
           {
             "name": "user",
@@ -889,13 +1071,85 @@
             "name": "bump",
             "type": "u8"
           }
-        ],
-        "kind": "struct"
+        ]
+      }
+    },
+    {
+      "name": "BetCounter",
+      "docs": [
+        "Per-user-per-market bet counter. Never delegated."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "count",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "BetRecord",
+      "docs": [
+        "Non-delegated L1 record of a bet — survives delegation to TEE unchanged.",
+        "Created alongside the Bet PDA in init_bet; never delegated.",
+        "Used by claim_winnings to read the original outcome and amount."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "user",
+            "type": "pubkey"
+          },
+          {
+            "name": "market_id",
+            "type": "u64"
+          },
+          {
+            "name": "bet_index",
+            "type": "u64"
+          },
+          {
+            "name": "outcome",
+            "type": "u8"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ClaimRecord",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "claimed",
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
       }
     },
     {
       "name": "Market",
       "type": {
+        "kind": "struct",
         "fields": [
           {
             "name": "market_id",
@@ -949,8 +1203,7 @@
             "name": "bump",
             "type": "u8"
           }
-        ],
-        "kind": "struct"
+        ]
       }
     }
   ]

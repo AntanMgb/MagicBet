@@ -20,6 +20,7 @@ export interface BetAccount {
   amount: string;
   claimed: boolean;
   publicKey: string;
+  betIndex?: number;
 }
 
 export type MarketTypeLabel = 'Price Above' | 'Price Below' | 'Manual';

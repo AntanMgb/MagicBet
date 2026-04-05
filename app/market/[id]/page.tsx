@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { useWallet, useConnection, useAnchorWallet } from '@solana/wallet-adapter-react';
+import { useWallet, useAnchorWallet } from '@solana/wallet-adapter-react';
 import dynamic from 'next/dynamic';
 const WalletMultiButton = dynamic(
   () => import('@solana/wallet-adapter-react-ui').then(m => m.WalletMultiButton),
@@ -13,7 +13,8 @@ import { SystemProgram } from '@solana/web3.js';
 import { Connection as SolConnection } from '@solana/web3.js';
 import { BN } from '@coral-xyz/anchor';
 import { PlaceBetForm } from '@/components/PlaceBetForm';
-import { fetchAllMarkets, getProgram, getMarketPda, getBetPda, lamportsToSol, formatDeadline, isExpired, DELEGATION_PROGRAM } from '@/lib/program';
+import { fetchAllMarkets, fetchUserBetRecords, getProgram, getMarketPda, getBetRecordPda, getClaimRecordPda, lamportsToSol, formatDeadline, isExpired } from '@/lib/program';
+import type { BetAccount } from '@/types';
 
 const DEVNET_RPC = 'https://api.devnet.solana.com';
 import { fetchPythPrice } from '@/lib/markets';
@@ -38,17 +39,18 @@ function assetColor(q: string) {
 export default function MarketPage() {
   const params  = useParams();
   const router  = useRouter();
-  const { connection } = useConnection();
-  const { publicKey }  = useWallet();
+
+  const { publicKey, signMessage }  = useWallet();
   const anchorWallet   = useAnchorWallet();
 
   const [market,       setMarket]       = useState<MarketAccount | null>(null);
   const [loading,      setLoading]      = useState(true);
   const [resolving,    setResolving]    = useState(false);
   const [claiming,     setClaiming]     = useState(false);
+  const [claimedBets,  setClaimedBets]  = useState<Set<number>>(new Set());
   const [currentPrice, setCurrentPrice] = useState<number | null>(null);
   const [msg,          setMsg]          = useState('');
-  const [userBetOutcome, setUserBetOutcome] = useState<1 | 2 | null>(null);
+  const [userBets,     setUserBets]     = useState<BetAccount[]>([]);
   const [now,          setNow]          = useState(() => Date.now());
   const deadlineTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -57,7 +59,8 @@ export default function MarketPage() {
 
   const load = async () => {
     try {
-      const all   = await fetchAllMarkets(connection);
+      const conn  = new SolConnection(DEVNET_RPC, 'confirmed');
+      const all   = await fetchAllMarkets(conn);
       const found = all.find((m) => m.marketId === marketId);
       if (!found) { router.push('/'); return; }
       setMarket(found);
@@ -66,20 +69,15 @@ export default function MarketPage() {
         const coinId = COIN_BY_FEED[found.pythFeed];
         if (coinId) setCurrentPrice(await fetchPythPrice(coinId));
       }
+      // Always reload user bets so claim button appears after resolution
+      if (publicKey) {
+        fetchUserBetRecords(conn, BigInt(marketId), publicKey)
+          .then(setUserBets)
+          .catch(() => {});
+      }
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
   };
-
-  // Load user's bet from localStorage
-  useEffect(() => {
-    if (!publicKey) return;
-    try {
-      const key = `magicbet_bets_${publicKey.toString()}`;
-      const bets: { marketId: string; outcome: 1 | 2 }[] = JSON.parse(localStorage.getItem(key) || '[]');
-      const mine = bets.find(b => b.marketId === marketId);
-      if (mine) setUserBetOutcome(mine.outcome);
-    } catch {}
-  }, [publicKey, marketId]);
 
   // Auto-resolve when market expires
   const tryAutoResolve = async (m: MarketAccount) => {
@@ -115,15 +113,17 @@ export default function MarketPage() {
 
 
   const handleWithdraw = async () => {
-    if (!market) return;
-    const secret = prompt('Enter admin secret:');
-    if (!secret) return;
+    if (!market || !publicKey || !anchorWallet) return;
     setClaiming(true); setMsg('');
     try {
+      const message = new TextEncoder().encode(`withdraw:${market.marketId}`);
+      if (!signMessage) throw new Error('Wallet does not support signMessage');
+      const signedMsg = await signMessage(message);
+      const signature = Buffer.from(signedMsg).toString('base64');
       const res = await fetch('/api/withdraw-market', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ marketId: market.marketId, secret }),
+        body: JSON.stringify({ marketId: market.marketId, walletAddress: publicKey.toBase58(), signature }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? 'Failed');
@@ -133,43 +133,32 @@ export default function MarketPage() {
     finally { setClaiming(false); }
   };
 
-  const handleClaim = async () => {
+  const handleClaim = async (betIndex: number) => {
     if (!market || !anchorWallet || !publicKey) return;
     setClaiming(true); setMsg('');
     try {
-      const freshConn = new SolConnection(DEVNET_RPC, 'confirmed');
-      const marketPda = getMarketPda(BigInt(market.marketId));
-      const betPda    = getBetPda(BigInt(market.marketId), publicKey);
-
-      // Перевірити що market PDA ще існує на чейні
+      const freshConn  = new SolConnection(DEVNET_RPC, 'confirmed');
+      const marketId_n = BigInt(market.marketId);
+      const marketPda  = getMarketPda(marketId_n);
       const marketInfo = await freshConn.getAccountInfo(marketPda, 'confirmed');
-      if (!marketInfo) {
-        setMsg('❌ Market account was closed on-chain. Contact admin to recover funds.');
-        return;
-      }
+      if (!marketInfo) { setMsg('❌ Market account closed on-chain.'); return; }
 
-      // Якщо ставка ще в TEE — сервер повертає на L1 (без підпису юзера)
-      const betInfo = await freshConn.getAccountInfo(betPda, 'confirmed');
-      const isInTee = betInfo !== null && betInfo.owner.equals(DELEGATION_PROGRAM);
-      if (isInTee) {
-        setMsg('⏳ Returning bet from TEE to L1...');
-        const res = await fetch('/api/undelegate-bet', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ marketId: market.marketId, userPubkey: publicKey.toBase58() }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error ?? 'Undelegation failed');
-        setMsg('✓ Bet returned to L1. Claiming...');
-        await new Promise(r => setTimeout(r, 1000));
-      }
-
-      const program = getProgram(anchorWallet, connection);
-      await (program.methods as any)
-        .claimWinnings(new BN(market.marketId))
-        .accounts({ user: publicKey, market: marketPda, bet: betPda, systemProgram: SystemProgram.programId })
-        .rpc();
+      const betRecordPda   = getBetRecordPda(marketId_n, publicKey, BigInt(betIndex));
+      const claimRecordPda = getClaimRecordPda(marketId_n, publicKey, BigInt(betIndex));
+      const program = getProgram(anchorWallet, freshConn);
+      const tx = await (program.methods as any)
+        .claimWinnings(new BN(market.marketId), new BN(betIndex))
+        .accounts({ user: publicKey, market: marketPda, betRecord: betRecordPda, claimRecord: claimRecordPda, systemProgram: SystemProgram.programId })
+        .transaction();
+      const { blockhash, lastValidBlockHeight } = await freshConn.getLatestBlockhash('confirmed');
+      tx.recentBlockhash = blockhash;
+      tx.feePayer = publicKey;
+      const signed = await anchorWallet.signTransaction(tx);
+      const sig    = await freshConn.sendRawTransaction(signed.serialize(), { skipPreflight: false });
+      const result = await freshConn.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, 'confirmed');
+      if (result.value.err) throw new Error(JSON.stringify(result.value.err));
       setMsg('💰 Winnings claimed!');
+      setClaimedBets(prev => new Set(prev).add(betIndex));
       await load();
     } catch (e: any) { setMsg(`❌ ${e?.message ?? 'Failed'}`); }
     finally { setClaiming(false); }
@@ -305,54 +294,62 @@ export default function MarketPage() {
 
           {/* Resolution result */}
           {market.resolved && (() => {
-            const userWon = userBetOutcome !== null && userBetOutcome === market.winningOutcome;
-            const userLost = userBetOutcome !== null && userBetOutcome !== market.winningOutcome;
-            const winColor = market.winningOutcome === 1 ? '#59e09d' : '#de3fbc';
+            const winningBets = userBets.filter(b => b.outcome === market.winningOutcome);
+            const losingBets  = userBets.filter(b => b.outcome !== market.winningOutcome);
+            const winColor    = market.winningOutcome === 1 ? '#59e09d' : '#de3fbc';
             return (
               <div style={{
                 borderRadius: 14, padding: '20px',
                 background: market.winningOutcome === 1 ? 'rgba(89,224,157,0.07)' : 'rgba(222,63,188,0.07)',
                 border: `1px solid ${market.winningOutcome === 1 ? 'rgba(89,224,157,0.25)' : 'rgba(222,63,188,0.25)'}`,
               }}>
-                <div style={{ fontFamily: 'var(--font-unbounded)', fontWeight: 900, fontSize: 24, color: winColor, marginBottom: 4 }}>
+                <div style={{ fontFamily: 'var(--font-unbounded)', fontWeight: 900, fontSize: 24, color: winColor, marginBottom: 8 }}>
                   {market.winningOutcome === 1 ? '✓ YES WON' : '✕ NO WON'}
                 </div>
-                {userWon && (
-                  <div style={{ fontFamily: 'var(--font-fira)', fontSize: 11, color: '#59e09d', marginBottom: 14, letterSpacing: '0.08em' }}>
-                    🎉 YOU BET CORRECTLY — CLAIM YOUR WINNINGS
-                  </div>
-                )}
-                {userLost && (
-                  <div style={{ fontFamily: 'var(--font-fira)', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginBottom: 14, letterSpacing: '0.08em' }}>
-                    You bet on the losing side
-                  </div>
-                )}
-                {!userBetOutcome && (
+                {userBets.length === 0 && (
                   <div style={{ fontFamily: 'var(--font-fira)', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginBottom: 14 }}>
                     Market resolved
                   </div>
                 )}
-                {userWon && publicKey && (
-                  <button onClick={handleClaim} disabled={claiming} style={{
-                    fontFamily: 'var(--font-fira)', fontSize: 12, letterSpacing: '0.1em',
-                    padding: '12px 32px', borderRadius: 999, border: 'none', cursor: 'pointer',
-                    background: 'linear-gradient(135deg,#f59e0b,#de3fbc)',
-                    color: '#fff', fontWeight: 600, width: '100%',
-                  }}>
-                    {claiming ? 'CLAIMING...' : '💰 CLAIM WINNINGS'}
-                  </button>
+                {losingBets.length > 0 && winningBets.length === 0 && (
+                  <div style={{ fontFamily: 'var(--font-fira)', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginBottom: 14, letterSpacing: '0.08em' }}>
+                    You bet on the losing side
+                  </div>
                 )}
-                {/* Creator withdraw — collect losing bets */}
-                {market.resolved && (
-                  <button onClick={handleWithdraw} disabled={claiming} style={{
-                    marginTop: 8, fontFamily: 'var(--font-fira)', fontSize: 11, letterSpacing: '0.1em',
-                    padding: '10px 32px', borderRadius: 999, border: '1px solid rgba(255,255,255,0.15)',
-                    cursor: 'pointer', background: 'rgba(255,255,255,0.05)',
-                    color: 'rgba(255,255,255,0.5)', fontWeight: 600, width: '100%',
-                  }}>
-                    {claiming ? '...' : '🏦 WITHDRAW FEES (CREATOR)'}
-                  </button>
-                )}
+                {/* Claim button per winning bet */}
+                {winningBets.map((bet) => (
+                  <div key={bet.betIndex} style={{ marginBottom: 8 }}>
+                    <div style={{ fontFamily: 'var(--font-fira)', fontSize: 10, color: '#59e09d', marginBottom: 6 }}>
+                      🎉 Bet #{(bet.betIndex ?? 0) + 1} — {lamportsToSol(bet.amount).toFixed(3)} SOL won
+                    </div>
+                    <button
+                      onClick={() => handleClaim(bet.betIndex ?? 0)}
+                      disabled={claiming || claimedBets.has(bet.betIndex ?? 0)}
+                      style={{
+                        fontFamily: 'var(--font-fira)', fontSize: 12, letterSpacing: '0.1em',
+                        padding: '12px 32px', borderRadius: 999,
+                        border: claimedBets.has(bet.betIndex ?? 0) ? '1px solid rgba(89,224,157,0.4)' : 'none',
+                        cursor: claimedBets.has(bet.betIndex ?? 0) ? 'default' : 'pointer',
+                        background: claimedBets.has(bet.betIndex ?? 0)
+                          ? 'rgba(89,224,157,0.15)'
+                          : 'linear-gradient(135deg,#f59e0b,#de3fbc)',
+                        color: claimedBets.has(bet.betIndex ?? 0) ? '#59e09d' : '#fff',
+                        fontWeight: 600, width: '100%',
+                      }}
+                    >
+                      {claimedBets.has(bet.betIndex ?? 0) ? '✓ CLAIMED' : claiming ? 'CLAIMING...' : '💰 CLAIM WINNINGS'}
+                    </button>
+                  </div>
+                ))}
+                {/* Creator withdraw */}
+                <button onClick={handleWithdraw} disabled={claiming} style={{
+                  marginTop: 8, fontFamily: 'var(--font-fira)', fontSize: 11, letterSpacing: '0.1em',
+                  padding: '10px 32px', borderRadius: 999, border: '1px solid rgba(255,255,255,0.15)',
+                  cursor: 'pointer', background: 'rgba(255,255,255,0.05)',
+                  color: 'rgba(255,255,255,0.5)', fontWeight: 600, width: '100%',
+                }}>
+                  {claiming ? '...' : '🏦 WITHDRAW FEES (CREATOR)'}
+                </button>
               </div>
             );
           })()}

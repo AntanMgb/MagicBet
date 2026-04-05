@@ -19,7 +19,7 @@ const WalletMultiButton = dynamic(
   { ssr: false }
 );
 
-type BetStatus = 'active' | 'pending_resolution' | 'won' | 'lost' | 'unknown';
+type BetStatus = 'active' | 'pending_resolution' | 'won' | 'lost' | 'unknown' | 'claimed';
 
 interface BetWithMarket extends BetAccount {
   market: MarketAccount | null;
@@ -67,6 +67,16 @@ export default function ProfilePage() {
         return { ...b, market, status };
       });
 
+      // Batch-check ClaimRecord PDAs for won bets to detect already-claimed
+      const wonEnriched = enriched.filter(b => b.status === 'won');
+      if (wonEnriched.length > 0) {
+        const claimPdas = wonEnriched.map(b =>
+          getClaimRecordPda(BigInt(b.marketId), publicKey, BigInt(b.betIndex ?? 0))
+        );
+        const claimInfos = await conn.getMultipleAccountsInfo(claimPdas);
+        wonEnriched.forEach((b, i) => { if (claimInfos[i] !== null) b.status = 'claimed'; });
+      }
+
       setBets(enriched.sort((a, b) => Number(b.betIndex ?? 0) - Number(a.betIndex ?? 0)));
     } catch (e) { console.error('[profile] load error:', e); }
     finally { setLoading(false); }
@@ -112,6 +122,12 @@ export default function ProfilePage() {
   const activeBets = bets.filter(b => b.status === 'active');
   const lostBets   = bets.filter(b => b.status === 'lost');
   const totalWagered = bets.reduce((s, b) => s + lamportsToSol(b.amount), 0);
+
+  const claimAll = async () => {
+    for (const bet of wonBets) {
+      await claimWinnings(bet).catch(() => {});
+    }
+  };
 
   return (
     <div style={{ minHeight: '100vh', background: '#050508' }}>
@@ -195,6 +211,23 @@ export default function ProfilePage() {
           </div>
         )}
 
+        {!loading && wonBets.length > 1 && (
+          <div style={{ marginBottom: 12 }}>
+            <button
+              onClick={claimAll}
+              disabled={claimingKey !== null}
+              style={{
+                fontFamily: 'var(--font-fira)', fontSize: 11, letterSpacing: '0.08em',
+                padding: '8px 20px', borderRadius: 999, border: 'none', cursor: 'pointer',
+                background: 'linear-gradient(135deg,#f59e0b,#de3fbc)',
+                color: '#fff', fontWeight: 600, opacity: claimingKey !== null ? 0.6 : 1,
+              }}
+            >
+              {claimingKey !== null ? '...' : `💰 CLAIM ALL (${wonBets.length})`}
+            </button>
+          </div>
+        )}
+
         {!loading && bets.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {bets.map((b) => {
@@ -203,6 +236,7 @@ export default function ProfilePage() {
                 pending_resolution: { label: '⏳ RESOLVING', color: '#f59e0b', bg: 'rgba(245,158,11,0.08)' },
                 won:                { label: '🏆 WON',      color: '#f59e0b', bg: 'rgba(245,158,11,0.1)'  },
                 lost:               { label: '✕ LOST',      color: 'rgba(255,255,255,0.2)', bg: 'rgba(255,255,255,0.03)' },
+                claimed:            { label: '✓ CLAIMED',   color: '#59e09d', bg: 'rgba(89,224,157,0.05)' },
                 unknown:            { label: '? UNKNOWN',   color: 'rgba(255,255,255,0.2)', bg: 'transparent' },
               };
               const meta       = STATUS_META[b.status];

@@ -8,8 +8,11 @@ const WalletMultiButton = dynamic(
   { ssr: false }
 );
 import { MarketCard } from '@/components/MarketCard';
-import { fetchAllMarkets, lamportsToSol, isExpired } from '@/lib/program';
-import type { MarketAccount } from '@/types';
+import { fetchAllMarkets, fetchAllUserBets, lamportsToSol, isExpired } from '@/lib/program';
+import { Connection } from '@solana/web3.js';
+import type { MarketAccount, BetAccount } from '@/types';
+
+const DEVNET_RPC = 'https://api.devnet.solana.com';
 
 // ─── Detection ────────────────────────────────────────────────────────────────
 
@@ -118,12 +121,9 @@ const SUBTYPES: { key: Subtype; label: string }[] = [
 // Max allowed deadline (seconds from now) per short timeframe — filters out stale seeds
 // ─── Component ────────────────────────────────────────────────────────────────
 
-interface LocalBet {
-  marketId:  string;
-  question:  string;
-  outcome:   1 | 2;
-  amount:    number;
-  timestamp: number;
+interface OnChainBet extends BetAccount {
+  question: string;
+  status: 'active' | 'won' | 'lost' | 'pending_resolution' | 'unknown';
 }
 
 export default function HomePage() {
@@ -132,20 +132,33 @@ export default function HomePage() {
   const [markets,   setMarkets]   = useState<MarketAccount[]>([]);
   const [loading,   setLoading]   = useState(true);
   const [tab,       setTab]       = useState<'markets' | 'mybets' | 'history'>('markets');
-  const [myBets,    setMyBets]    = useState<LocalBet[]>([]);
+  const [myBets,    setMyBets]    = useState<OnChainBet[]>([]);
+  const [betsLoading, setBetsLoading] = useState(false);
   const [timeframe, setTimeframe] = useState<Timeframe>('ALL');
   const [subtype,   setSubtype]   = useState<Subtype>('ALL');
   const [asset,     setAsset]     = useState<Asset>('ALL');
   const [search,    setSearch]    = useState('');
 
-  // Load My Bets from localStorage whenever wallet changes
+  // Load My Bets from chain whenever wallet or markets change
   useEffect(() => {
     if (!publicKey) { setMyBets([]); return; }
-    try {
-      const key = `magicbet_bets_${publicKey.toString()}`;
-      setMyBets(JSON.parse(localStorage.getItem(key) || '[]'));
-    } catch { setMyBets([]); }
-  }, [publicKey]);
+    setBetsLoading(true);
+    const conn = new Connection(DEVNET_RPC, 'confirmed');
+    fetchAllUserBets(conn, publicKey).then(rawBets => {
+      const marketMap = new Map(markets.map(m => [m.marketId, m]));
+      const enriched: OnChainBet[] = rawBets.map(b => {
+        const market = marketMap.get(b.marketId);
+        let status: OnChainBet['status'] = 'unknown';
+        if (market) {
+          if (market.resolved) status = b.outcome === market.winningOutcome ? 'won' : 'lost';
+          else if (isExpired(market.deadline)) status = 'pending_resolution';
+          else status = 'active';
+        }
+        return { ...b, question: market?.question ?? `Market ${b.marketId}`, status };
+      });
+      setMyBets(enriched.sort((a, b) => Number(b.betIndex ?? 0) - Number(a.betIndex ?? 0)));
+    }).catch(() => {}).finally(() => setBetsLoading(false));
+  }, [publicKey, markets]);
 
   const load = async () => {
     setLoading(true);
@@ -476,12 +489,7 @@ export default function HomePage() {
             ] as const).map((t) => (
               <button key={t.key} onClick={() => {
                 setTab(t.key);
-                if (t.key === 'mybets' && publicKey) {
-                  try {
-                    const key = `magicbet_bets_${publicKey.toString()}`;
-                    setMyBets(JSON.parse(localStorage.getItem(key) || '[]'));
-                  } catch {}
-                }
+                void t.key;
               }} style={{
                 fontFamily: 'var(--font-fira)', fontSize: 11, letterSpacing: '0.1em',
                 padding: '6px 14px', borderRadius: 8, border: 'none', cursor: 'pointer',
@@ -502,7 +510,11 @@ export default function HomePage() {
 
         {/* ── MY BETS ──────────────────────────────────────────────────────── */}
         {tab === 'mybets' && (
-          myBets.length === 0 ? (
+          betsLoading ? (
+            <div style={{ textAlign: 'center', padding: '60px 0', fontFamily: 'var(--font-fira)', fontSize: 11, letterSpacing: '0.2em', color: 'rgba(255,255,255,0.3)' }}>
+              LOADING...
+            </div>
+          ) : myBets.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '80px 0' }}>
               <div style={{ fontSize: 48, marginBottom: 16 }}>🔒</div>
               <div style={{ fontFamily: 'var(--font-unbounded)', fontWeight: 700, fontSize: 16, color: 'rgba(255,255,255,0.5)', marginBottom: 8 }}>
@@ -514,33 +526,51 @@ export default function HomePage() {
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {myBets.map((b) => (
-                <a key={b.marketId} href={`/market/${b.marketId}`} style={{ textDecoration: 'none' }}>
-                  <div className="glass" style={{ borderRadius: 14, padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 16, cursor: 'pointer' }}>
-                    <div style={{
-                      width: 48, height: 48, borderRadius: 12, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      background: b.outcome === 1 ? 'rgba(89,224,157,0.1)' : 'rgba(222,63,188,0.1)',
-                      border: `1px solid ${b.outcome === 1 ? 'rgba(89,224,157,0.3)' : 'rgba(222,63,188,0.3)'}`,
-                      fontFamily: 'var(--font-unbounded)', fontWeight: 900, fontSize: 13,
-                      color: b.outcome === 1 ? '#59e09d' : '#de3fbc',
-                    }}>
-                      {b.outcome === 1 ? 'YES' : 'NO'}
-                    </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontFamily: 'var(--font-lexend)', fontSize: 13, color: 'rgba(255,255,255,0.85)', marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {b.question}
+              {myBets.map((b) => {
+                const STATUS_COLOR: Record<string, string> = {
+                  active: '#59e09d', won: '#f59e0b', lost: 'rgba(255,255,255,0.25)',
+                  pending_resolution: '#f59e0b', unknown: 'rgba(255,255,255,0.25)',
+                };
+                const statusLabel: Record<string, string> = {
+                  active: '● ACTIVE', won: '🏆 WON', lost: '✕ LOST',
+                  pending_resolution: '⏳ RESOLVING', unknown: '? UNKNOWN',
+                };
+                const color = STATUS_COLOR[b.status] ?? 'rgba(255,255,255,0.25)';
+                return (
+                  <a key={`${b.marketId}-${b.betIndex}`} href={`/market/${b.marketId}`} style={{ textDecoration: 'none' }}>
+                    <div className="glass" style={{ borderRadius: 14, padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 16, cursor: 'pointer' }}>
+                      <div style={{
+                        width: 48, height: 48, borderRadius: 12, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        background: b.outcome === 1 ? 'rgba(89,224,157,0.1)' : 'rgba(222,63,188,0.1)',
+                        border: `1px solid ${b.outcome === 1 ? 'rgba(89,224,157,0.3)' : 'rgba(222,63,188,0.3)'}`,
+                        fontFamily: 'var(--font-unbounded)', fontWeight: 900, fontSize: 13,
+                        color: b.outcome === 1 ? '#59e09d' : '#de3fbc',
+                      }}>
+                        {b.outcome === 1 ? 'YES' : 'NO'}
                       </div>
-                      <div style={{ fontFamily: 'var(--font-fira)', fontSize: 10, color: 'rgba(255,255,255,0.3)', letterSpacing: '0.08em' }}>
-                        🔒 HIDDEN IN INTEL TDX TEE · {new Date(b.timestamp).toLocaleString()}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontFamily: 'var(--font-lexend)', fontSize: 13, color: 'rgba(255,255,255,0.85)', marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {b.question}
+                        </div>
+                        <div style={{ display: 'flex', gap: 12 }}>
+                          <span style={{ fontFamily: 'var(--font-fira)', fontSize: 9, letterSpacing: '0.08em', color }}>
+                            {statusLabel[b.status] ?? b.status}
+                          </span>
+                          <span style={{ fontFamily: 'var(--font-fira)', fontSize: 9, color: 'rgba(255,255,255,0.2)', letterSpacing: '0.08em' }}>
+                            🔒 IN TEE
+                          </span>
+                        </div>
+                      </div>
+                      <div style={{ flexShrink: 0, textAlign: 'right' }}>
+                        <div style={{ fontFamily: 'var(--font-unbounded)', fontWeight: 800, fontSize: 15, color: '#fff' }}>
+                          {lamportsToSol(b.amount).toFixed(3)} SOL
+                        </div>
+                        <div style={{ fontFamily: 'var(--font-fira)', fontSize: 9, color: 'rgba(255,255,255,0.25)', letterSpacing: '0.1em', marginTop: 2 }}>PRIVATE BET</div>
                       </div>
                     </div>
-                    <div style={{ flexShrink: 0, textAlign: 'right' }}>
-                      <div style={{ fontFamily: 'var(--font-unbounded)', fontWeight: 800, fontSize: 15, color: '#fff' }}>{b.amount} SOL</div>
-                      <div style={{ fontFamily: 'var(--font-fira)', fontSize: 9, color: 'rgba(255,255,255,0.25)', letterSpacing: '0.1em', marginTop: 2 }}>PRIVATE BET</div>
-                    </div>
-                  </div>
-                </a>
-              ))}
+                  </a>
+                );
+              })}
             </div>
           )
         )}
